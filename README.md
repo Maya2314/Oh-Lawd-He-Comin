@@ -44,7 +44,7 @@ countermeasure and we re-measure it, over text and over speech.
 - `chonkvid/web/measured-run.json` → the dashboard's snapshot of one live outbreak
   (40 agents, Ministral 8B), so the UI shows a real run rather than a mock.
 - `demo/chonkvid-demo.mp4` → the recorded demo.
-- `chonkvid/tests/` → 124 tests, including the detector's false-positive control and the
+- `chonkvid/tests/` → 125 tests, including the detector's false-positive control and the
   "mentions the chain letter" case that must *not* count as infection.
 
 ### What was deliberately not built
