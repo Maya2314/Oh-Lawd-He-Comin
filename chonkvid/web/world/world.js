@@ -121,6 +121,77 @@
   const sx = (p) => p[0] * T.k + T.x;
   const sy = (p) => p[1] * T.k + T.y;
 
+  // Outlines projected once (per window size) into Path2D, in map coordinates at zoom 1.
+  // Drawing them is then a transform and a fill: no spherical projection maths per frame
+  // or per zoom event, which is what made zooming and the lit-up countries stutter.
+  // Two levels of detail: the light 110m outlines while zoomed out, the sharp 50m ones
+  // once you zoom in far enough to see the difference.
+  const GEO = { land: null, borders: null, coast: null, landLo: null, bordersLo: null, coastLo: null,
+                grat: null, country: new Map(), bounds: null };
+  const LOD_ZOOM = 1.8;
+  function buildGeoCache() {
+    const shape = (obj) => { const p = new Path2D(); d3.geoPath(proj, p)(obj); return p; };
+    GEO.country = new Map();
+    shadowSprite = null;
+    if (!S.land) return;
+    GEO.land = shape(S.land); GEO.borders = shape(S.borders); GEO.grat = shape(d3.geoGraticule10());
+    GEO.landLo = S.lowLand ? shape(S.lowLand) : GEO.land;
+    GEO.bordersLo = S.lowBorders ? shape(S.lowBorders) : GEO.borders;
+    // coastlines as their own outline (each arc once), cheaper than stroking every country
+    GEO.coast = S.coast ? shape(S.coast) : GEO.land;
+    GEO.coastLo = S.coastLo ? shape(S.coastLo) : GEO.coast;
+    GEO.bounds = d3.geoPath(proj).bounds(S.lowLand || S.land);
+    GEO.cbox = new Map();
+    const bounds = d3.geoPath(proj).bounds;
+    for (const c of S.countries) { GEO.country.set(c, shape(c)); GEO.cbox.set(c, bounds(c)); }
+  }
+  // Zoomed in, only a few countries are on screen: build the land from those alone, so the
+  // browser does not trace every coastline on Earth at 9x scale.
+  function visibleLand() {
+    const x0 = -T.x / T.k, y0 = -T.y / T.k, x1 = (W - T.x) / T.k, y1 = (H - T.y) / T.k;
+    const p = new Path2D();
+    let n = 0;
+    for (const [c, b] of GEO.cbox) {
+      if (b[1][0] < x0 || b[0][0] > x1 || b[1][1] < y0 || b[0][1] > y1) continue;
+      p.addPath(GEO.country.get(c)); n++;
+    }
+    return n ? p : null;
+  }
+
+  // The land's drop shadow is a heavy blur. It is soft by nature, so it is drawn once at
+  // zoom 1 into a sprite and reused, scaled, at every zoom instead of re-blurred.
+  let shadowSprite = null;
+  function landShadow() {
+    if (shadowSprite && shadowSprite.theme === TH.shadow + TH.coastGlow) return shadowSprite;
+    const [[x0, y0], [x1, y1]] = GEO.bounds, pad = 40, s = 0.75, OFF = 20000;
+    const c = document.createElement("canvas");
+    c.width = Math.ceil((x1 - x0 + 2 * pad) * s); c.height = Math.ceil((y1 - y0 + 2 * pad) * s);
+    const g = c.getContext("2d");
+    // draw the shape far off-canvas and let only its shadow land on it
+    g.setTransform(s, 0, 0, s, (pad - x0 - OFF) * s, (pad - y0) * s);
+    g.shadowColor = TH.shadow; g.shadowBlur = 18 * s; g.shadowOffsetX = OFF * s; g.shadowOffsetY = 3 * s;
+    g.fillStyle = "#000"; g.fill(GEO.landLo);
+    // the soft coast glow lives in the same sprite: a 3.5 px stroke of the detailed
+    // coastline was the single most expensive thing the map drew
+    g.shadowColor = "transparent"; g.shadowBlur = 0; g.shadowOffsetX = 0; g.shadowOffsetY = 0;
+    g.setTransform(s, 0, 0, s, (pad - x0) * s, (pad - y0) * s);
+    g.lineJoin = "round"; g.strokeStyle = TH.coastGlow; g.lineWidth = 3.5; g.stroke(GEO.coastLo);
+    return (shadowSprite = { c, x: x0 - pad, y: y0 - pad, w: c.width / s, h: c.height / s, theme: TH.shadow + TH.coastGlow });
+  }
+  const geo = (f) => (f && GEO.country.get(f)) || null;
+  const mapTransform = (g) => g.setTransform(DPR * T.k, 0, 0, DPR * T.k, DPR * T.x, DPR * T.y);
+
+  // The infection glow is the same soft disc everywhere: draw it once, then stamp it.
+  let glowSprite = null;
+  function glow() {
+    if (glowSprite) return glowSprite;
+    const c = document.createElement("canvas"); c.width = c.height = 128;
+    const g = c.getContext("2d"), gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gr.addColorStop(0, "rgba(255,30,30,0.55)"); gr.addColorStop(1, "rgba(255,30,30,0)");
+    g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
+    return (glowSprite = c);
+  }
+
   function resize() {
     DPR = Math.min(window.devicePixelRatio || 1, 2);
     W = innerWidth; H = innerHeight;
@@ -131,12 +202,14 @@
     P.clear();
     for (const a of S.agents) { a.p = project(a.lon, a.lat); for (const q of a.specks) q.p = project(q.lon, q.lat); }
     for (const c of S.cities || []) c.p = project(c.lon, c.lat);
+    buildGeoCache();
+    landT = null;
     setupZoom();
     drawBase();
   }
 
   // ------------------------------------------------------------------ zoom / pan
-  let zoom = null;
+  let zoom = null, settleTimer = null;
   function setupZoom() {
     const top = proj([0, 84])[1], bottom = proj([0, -60])[1];
     const pad = Math.max(0, (H - (bottom - top)) / 2);
@@ -144,9 +217,16 @@
       .scaleExtent([1, 9])
       .translateExtent([[-40, Math.min(top - pad - 60, 0)], [W + 40, Math.max(bottom + pad + 60, H)]])
       .filter((ev) => !ev.button && (ev.type !== "dblclick"))
-      .on("start", () => fx.classList.add("dragging"))
-      .on("zoom", (ev) => { T = ev.transform; drawBase(); syncCamera(); })
-      .on("end", () => fx.classList.remove("dragging"));
+      .on("start", () => { fx.classList.add("dragging"); clearTimeout(settleTimer); })
+      // During a gesture, redraw from the cached land layer (fast). Shortly after it ends,
+      // render the land again at full quality; a new gesture in between cancels that, so
+      // quick repeated scrolls never stop to re-render.
+      .on("zoom", (ev) => { T = ev.transform; drawBase(true); syncCamera(); })
+      .on("end", () => {
+        fx.classList.remove("dragging");
+        clearTimeout(settleTimer);
+        settleTimer = setTimeout(() => drawBase(), 90);
+      });
     d3.select(fx).call(zoom).on("dblclick.zoom", null);
     d3.select(fx).call(zoom.transform, S.homed ? T : homeTransform());
     S.homed = true;
@@ -182,7 +262,49 @@
     return c;
   }
 
-  function drawBase() {
+  // The land layer (shadowed fill, texture, borders, coasts) is the expensive part of the
+  // map. It is rendered at full quality when the camera settles and kept in landCache;
+  // while the user zooms or pans, that bitmap is redrawn scaled to the new transform, so
+  // gestures stay at frame rate, and the crisp version replaces it as soon as they end.
+  let landCache = null, landT = null;
+  function renderLand() {
+    if (!GEO.land) return;
+    if (!noise) noise = makeNoise();
+    landCache = landCache || document.createElement("canvas");
+    if (landCache.width !== base.width || landCache.height !== base.height) {
+      landCache.width = base.width; landCache.height = base.height;
+    }
+    const g = landCache.getContext("2d");
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, landCache.width, landCache.height);
+    mapTransform(g);
+    g.lineJoin = "round"; g.lineCap = "round";
+    const lw = 1 / T.k;
+    const sharp = T.k >= LOD_ZOOM;
+    const deep = T.k >= 3.5;
+    const vis = deep ? visibleLand() : null;
+    const land = vis || (sharp ? GEO.land : GEO.landLo);
+    // zoomed right in, the visible countries' own outlines serve as borders and coast
+    const borders = vis || (sharp ? GEO.borders : GEO.bordersLo);
+    const coast = vis ? null : (sharp ? GEO.coast : GEO.coastLo);
+    g.strokeStyle = TH.grat; g.lineWidth = lw; g.stroke(GEO.grat);
+    // land: one plain colour for every country (theme token), on its pre-blurred shadow
+    const sh = landShadow();
+    g.save(); g.globalAlpha = Math.min(1, 2.2 / T.k);
+    g.drawImage(sh.c, sh.x, sh.y, sh.w, sh.h);
+    g.restore();
+    g.fillStyle = TH.land; g.fill(land);
+    // texture over land
+    g.save(); g.clip(land);
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    g.globalAlpha = 0.9; g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
+    g.restore();
+    g.strokeStyle = TH.border; g.lineWidth = 0.7 * lw; g.stroke(borders);
+    if (coast) { g.strokeStyle = TH.coast; g.lineWidth = 0.8 * lw; g.stroke(coast); }
+    landT = { k: T.k, x: T.x, y: T.y, theme: TH.land + TH.shadow };
+  }
+
+  function drawBase(fast) {
     const g = bctx;
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     // ocean
@@ -193,30 +315,17 @@
     g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
     if (!S.land) return;
 
-    g.save();
-    g.setTransform(DPR * T.k, 0, 0, DPR * T.k, DPR * T.x, DPR * T.y);
-    const path = d3.geoPath(proj, g);
-    const lw = 1 / T.k;
-
-    // graticule
-    g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = TH.grat; g.lineWidth = lw; g.stroke();
-
-    // land: one plain colour for every country (theme token), with glow + shadow
-    g.save();
-    g.shadowColor = TH.shadow; g.shadowBlur = 18 * DPR; g.shadowOffsetY = 3 * DPR;
-    g.beginPath(); path(S.land); g.fillStyle = TH.land; g.fill();
-    g.restore();
-    g.beginPath(); path(S.land); g.strokeStyle = TH.coastGlow; g.lineWidth = 3.5 * lw; g.stroke();
-
-    // texture over land
-    g.save(); g.beginPath(); path(S.land); g.clip();
-    g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    g.globalAlpha = 0.9; g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
-    g.restore();
-
-    g.beginPath(); path(S.borders); g.strokeStyle = TH.border; g.lineWidth = 0.7 * lw; g.stroke();
-    g.beginPath(); path(S.land); g.strokeStyle = TH.coast; g.lineWidth = 0.8 * lw; g.stroke();
-    g.restore();
+    const lodChanged = landT && ((landT.k >= LOD_ZOOM) !== (T.k >= LOD_ZOOM) || (landT.k >= 3.5) !== (T.k >= 3.5));
+    if (!fast || !landT || landT.theme !== TH.land + TH.shadow || lodChanged) renderLand();
+    if (landT) {
+      // screen = landScreen * r + (T - landT * r), with r the zoom ratio since the render
+      const r = T.k / landT.k;
+      g.save();
+      g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high";
+      g.setTransform(DPR * r, 0, 0, DPR * r, DPR * (T.x - landT.x * r), DPR * (T.y - landT.y * r));
+      g.drawImage(landCache, 0, 0, W, H);
+      g.restore();
+    }
 
     // flight routes between cities that share a contact (static, faint)
     g.save();
@@ -324,7 +433,11 @@
   function hash(s) { let h = 2166136261; for (const ch of String(s)) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return h >>> 0; }
 
   function countryAt(lon, lat) {
-    for (const c of S.countries) if (d3.geoContains(c, [lon, lat])) return c;
+    for (const c of S.countries) {
+      const b = c.bbox; // [[w, s], [e, n]]; skip the exact test when the point is clearly outside
+      if (b && b[0][0] <= b[1][0] && (lon < b[0][0] || lon > b[1][0] || lat < b[0][1] || lat > b[1][1])) continue;
+      if (d3.geoContains(c, [lon, lat])) return c;
+    }
     return null;
   }
   function nearestCountry(lon, lat) {
@@ -1064,15 +1177,14 @@
 
     // pickable countries while choosing patient zero
     if (S.picking) {
-      g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
-      const path = d3.geoPath(proj, g);
+      g.save(); mapTransform(g); g.lineJoin = "round";
       const pulse = 0.5 + 0.5 * Math.sin(now / 280);
       const set = new Set(S.agents.map((a) => a.city.country).filter(Boolean));
       for (const c of set) {
-        g.beginPath(); path(c);
+        const p = geo(c); if (!p) continue;
         g.fillStyle = c === S.hoverCountry ? `rgba(255,60,60,${0.35 + 0.15 * pulse})` : `rgba(255,80,80,${0.08 + 0.1 * pulse})`;
-        g.fill();
-        g.strokeStyle = `rgba(255,120,120,${0.5 + 0.4 * pulse})`; g.lineWidth = 1.4 / k; g.stroke();
+        g.fill(p);
+        g.strokeStyle = `rgba(255,120,120,${0.5 + 0.4 * pulse})`; g.lineWidth = 1.4 / k; g.stroke(p);
       }
       g.restore();
     }
@@ -1080,7 +1192,7 @@
     // countries light up in the colour key of their most serious state
     if (S.ctry.size) {
       const boost = TH.light ? 1.3 : 1; // the light land needs a little more colour to read
-      let path = null;
+      let inMap = false;
       for (const e of S.ctry.values()) {
         const target = e.state === "N" ? 0 : Math.min(0.75, (0.18 + 0.32 * e.share) * boost);
         e.cur += (target - e.cur) * 0.06;
@@ -1089,16 +1201,13 @@
         const alpha = e.flashAt && !REDUCED && since < COUNTRY_FLASH_MS
           ? Math.max(e.cur, 0.85 * (1 - since / COUNTRY_FLASH_MS)) : e.cur;
         if (alpha < 0.01 || !e.col) continue;
-        if (e.poly) {
-          if (!path) {
-            g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
-            path = d3.geoPath(proj, g);
-          }
+        if (geo(e.poly)) {
+          if (!inMap) { g.save(); mapTransform(g); inMap = true; }
           g.globalAlpha = alpha; g.fillStyle = e.col;
-          g.beginPath(); path(e.poly); g.fill();
+          g.fill(geo(e.poly));
         } else {
           // no outline in the atlas (Singapore): a soft disc around the office instead
-          if (path) { g.restore(); path = null; }
+          if (inMap) { g.restore(); inMap = false; }
           for (const c of e.cities) {
             const x = sx(c.p), y = sy(c.p), r = 34 * mk;
             if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
@@ -1109,28 +1218,38 @@
           }
         }
       }
-      if (path) g.restore();
+      if (inMap) g.restore();
       g.globalAlpha = 1;
     }
 
-    // infection glow under infected agents
+    // infection glow under infected agents (one pre-drawn sprite, stamped)
+    const sprite = glow();
     for (const a of S.agents) {
       if (S.cat[a.id] !== "I") continue;
       const x = sx(a.p), y = sy(a.p), r = 26 * mk * (0.9 + 0.1 * Math.sin(now / 300 + a.id));
-      const gr = g.createRadialGradient(x, y, 0, x, y, r);
-      gr.addColorStop(0, "rgba(255,30,30,0.55)"); gr.addColorStop(1, "rgba(255,30,30,0)");
-      g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      if (x < -r || y < -r || x > W + r || y > H + r) continue;
+      g.drawImage(sprite, x - r, y - r, 2 * r, 2 * r);
     }
 
-    // population specks
+    // population specks: round, batched into one path per colour, off-screen ones skipped
+    const buckets = new Map();
     for (const a of S.agents) {
       const cur = S.cat[a.id], prev = S.prevCat[a.id], since = now - S.catAt[a.id];
       for (const q of a.specks) {
+        const x = sx(q.p), y = sy(q.p);
+        if (x < -4 || y < -4 || x > W + 4 || y > H + 4) continue;
         const c = since > q.delay * 1500 ? cur : prev;
-        const s = q.size * mk * (c === "I" ? 1.35 : 1);
-        g.fillStyle = c === "N" ? TH.normalSpeck : COLOR[c];
-        g.fillRect(sx(q.p) - s / 2, sy(q.p) - s / 2, s, s);
+        const col = c === "N" ? TH.normalSpeck : COLOR[c];
+        let b = buckets.get(col);
+        if (!b) buckets.set(col, (b = []));
+        b.push(x, y, 0.6 * q.size * mk * (c === "I" ? 1.35 : 1));
       }
+    }
+    for (const [col, b] of buckets) {
+      g.fillStyle = col;
+      g.beginPath();
+      for (let i = 0; i < b.length; i += 3) { g.moveTo(b[i] + b[i + 2], b[i + 1]); g.arc(b[i], b[i + 1], b[i + 2], 0, Math.PI * 2); }
+      g.fill();
     }
 
     // transmission arcs
@@ -1692,6 +1811,16 @@
     };
     $("close-intel").onclick = closeIntel;
     $("zoom-reset").onclick = () => zoomHome();
+    // Back to the first page: return through history when we came from it (keeps its
+    // scroll position and state), otherwise just open it.
+    $("back-btn").onclick = (e) => {
+      try {
+        const ref = document.referrer && new URL(document.referrer);
+        if (ref && ref.origin === location.origin && ref.pathname === "/" && history.length > 1) {
+          e.preventDefault(); history.back();
+        }
+      } catch (err) { /* fall through to the link */ }
+    };
     // zoom about the pointer when there is one, so the buttons feel like the touchpad
     const zoomStep = (factor) => () => {
       const p = S.pointer || [W / 2, H / 2];
@@ -1755,7 +1884,11 @@
         hideCard(); closeIntel(); $("headline-list").classList.add("hidden");
       }
     });
-    addEventListener("resize", () => { resize(); drawCurve(); syncCamera(); });
+    let resizeTimer = null;
+    addEventListener("resize", () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => { resize(); drawCurve(); syncCamera(); }, 120);
+    });
     // Light/dark theme (theme.js): buttons in Setup, and a re-skin on every change.
     const effectiveTheme = () => (window.ChonkTheme ? ChonkTheme.effective() : "dark");
     const markTheme = () => {
@@ -1790,12 +1923,21 @@
     buildLegends();
     wire();
     selectVirus(VIRUSES[0].id, true);
-    const topo = await (await fetch("/static/world/vendor/countries-110m.json")).json();
+    // 50m outlines: smooth coastlines when zoomed in (110m kept as a fallback)
+    const lo = await (await fetch("/static/world/vendor/countries-110m.json")).json();
+    let topo;
+    try { topo = await (await fetch("/static/world/vendor/countries-50m.json")).json(); }
+    catch (e) { topo = lo; }
+    const noAnt = (f) => f.properties.name !== "Antarctica";
+    S.lowLand = { type: "FeatureCollection", features: topojson.feature(lo, lo.objects.countries).features.filter(noAnt) };
+    S.lowBorders = topojson.mesh(lo, lo.objects.countries, (a, b) => a !== b);
+    S.coastLo = topojson.mesh(lo, lo.objects.countries, (a, b) => a === b);
     const all = topojson.feature(topo, topo.objects.countries).features.filter((f) => f.properties.name !== "Antarctica");
     S.countries = all;
-    for (const c of all) c.centroid = d3.geoCentroid(c);
+    for (const c of all) { c.centroid = d3.geoCentroid(c); c.bbox = d3.geoBounds(c); }
     S.land = { type: "FeatureCollection", features: all };
     S.borders = topojson.mesh(topo, topo.objects.countries, (a, b) => a !== b);
+    S.coast = topojson.mesh(topo, topo.objects.countries, (a, b) => a === b);
     resize();
     try {
       S.status = await (await fetch("/api/status")).json();

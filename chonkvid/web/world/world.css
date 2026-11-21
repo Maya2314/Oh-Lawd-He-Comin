@@ -127,6 +127,17 @@ body.picking #fx { cursor: crosshair; }
   font-family: var(--font-hud); font-weight: 600; font-size: 18px; letter-spacing: .01em;
 }
 .news-text.flash { animation: newsIn .5s ease-out; }
+.news { margin-right: auto; }
+.back-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 14px;
+  border-radius: 18px 4px 4px 18px; text-decoration: none; color: var(--ink);
+  font-family: var(--font-hud); font-weight: 700; font-size: 16px; letter-spacing: .04em;
+  background: linear-gradient(180deg, var(--panel-a), var(--panel-b)); border: 1px solid var(--edge);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, .35); backdrop-filter: blur(6px);
+  transition: border-color .15s, transform .08s;
+}
+.back-btn:hover { border-color: var(--cyan); }
+.back-btn:active { transform: translateX(-1px); }
 @keyframes newsIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
 .clock { padding: 6px 10px 6px 12px; border-radius: 18px 4px 4px 4px; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
@@ -364,6 +375,7 @@ body.picking #fx { cursor: crosshair; }
   :root { --gutter: 10px; }
   .hud-top { flex-direction: column; align-items: stretch; gap: 6px; }
   .news { flex: none; }
+  .back-btn { align-self: flex-start; height: 34px; font-size: 14px; }
   .news-text { font-size: 15px; }
   .clock { flex-direction: row; justify-content: space-between; align-items: center; border-radius: 4px; }
   .day { font-size: 16px; }
