@@ -53,13 +53,17 @@
   // Paris and Singapore (Asia-Pacific HQ) are confirmed by press coverage; London,
   // Palo Alto, San Francisco and Montréal come from job listings and office
   // directories (Nov 2026). Edit this list if the office footprint changes.
+  // `lang` is the language the office's agents speak in the soundscape, so the chatter
+  // you hear when you zoom in matches the country you zoomed into.
   const OFFICES = [
-    { name: "Paris", land: "France", tag: "HQ", lat: 48.89, lon: 2.34, share: 0.45 },
-    { name: "Singapore", land: "Singapore", tag: "APAC HQ", lat: 1.28, lon: 103.85, share: 0.16 },
-    { name: "London", land: "United Kingdom", tag: "", lat: 51.51, lon: -0.13, share: 0.14 },
-    { name: "Montréal", land: "Canada", tag: "", lat: 45.5, lon: -73.57, share: 0.1 },
-    { name: "Palo Alto", land: "United States", tag: "", lat: 37.44, lon: -122.14, share: 0.09 },
-    { name: "San Francisco", land: "United States", tag: "", lat: 37.77, lon: -122.42, share: 0.06 },
+    { name: "Paris", land: "France", tag: "HQ", lat: 48.89, lon: 2.34, share: 0.36, lang: "fr" },
+    { name: "Singapore", land: "Singapore", tag: "APAC HQ", lat: 1.28, lon: 103.85, share: 0.16, lang: "en" },
+    { name: "London", land: "United Kingdom", tag: "", lat: 51.51, lon: -0.13, share: 0.14, lang: "en" },
+    { name: "Montréal", land: "Canada", tag: "", lat: 45.5, lon: -73.57, share: 0.1, lang: "fr" },
+    { name: "Palo Alto", land: "United States", tag: "", lat: 37.44, lon: -122.14, share: 0.09, lang: "en" },
+    { name: "San Francisco", land: "United States", tag: "", lat: 37.77, lon: -122.42, share: 0.06, lang: "en" },
+    { name: "Berlin", land: "Germany", tag: "", lat: 52.52, lon: 13.4, share: 0.05, lang: "de" },
+    { name: "Madrid", land: "Spain", tag: "", lat: 40.42, lon: -3.7, share: 0.04, lang: "es" },
   ];
 
   const POD_RING = (pods) => 0.32 + 0.2 * Math.sqrt(pods); // degrees from the office to each team pod
@@ -133,7 +137,7 @@
       .translateExtent([[-40, Math.min(top - pad - 60, 0)], [W + 40, Math.max(bottom + pad + 60, H)]])
       .filter((ev) => !ev.button && (ev.type !== "dblclick"))
       .on("start", () => fx.classList.add("dragging"))
-      .on("zoom", (ev) => { T = ev.transform; drawBase(); })
+      .on("zoom", (ev) => { T = ev.transform; drawBase(); syncCamera(); })
       .on("end", () => fx.classList.remove("dragging"));
     d3.select(fx).call(zoom).on("dblclick.zoom", null);
     d3.select(fx).call(zoom.transform, S.homed ? T : homeTransform());
@@ -230,6 +234,9 @@
     }
     g.restore();
 
+    // contact links you can hear: drawn only where the engine can actually place a voice
+    drawSoundLinks(g);
+
     // office pins and labels; a label that would overlap a bigger office's is skipped
     g.save();
     g.font = `700 ${T.k > 1.6 ? 14 : 12}px Rajdhani, sans-serif`;
@@ -254,6 +261,63 @@
       g.beginPath(); g.roundRect(lx - w / 2, ly - 17, w, 18, 4); g.fill();
       g.fillStyle = c.tag ? TH.labelHq : TH.labelInk;
       g.fillText(label, lx, ly);
+    }
+    g.restore();
+  }
+
+  // ------------------------------------------------------------------ soundscape
+  // Every contact link is a conversation (see sound.js). The engine needs the camera in
+  // its own terms: the projection plus the current d3 transform, so it can place each
+  // link on screen and fall off with distance the way the ear expects.
+  let chatterLoaded = null;
+  function syncCamera() {
+    if (!window.SoundPhysics || !S.world) return;
+    window.SoundPhysics.camera({ k: T.k, x: T.x, y: T.y, W, H, project });
+  }
+  async function loadChatter() {
+    if (!window.SoundPhysics || !S.world) return;
+    const sig = `${S.world.nodes.length}:${S.world.seed}`;
+    if (chatterLoaded === sig) return;
+    chatterLoaded = sig;
+    try {
+      const langs = {};
+      for (const a of S.agents) langs[a.id] = (a.city && a.city.lang) || "en";
+      const idx = await (await fetch("/api/world/chatter", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ n: S.world.nodes.length, seed: S.world.seed, langs }),
+      })).json();
+      S.soundLangs = idx.languages || [];
+      const edges = (idx.edges || []).map((e) => {
+        const a = S.byId.get(e.s), b = S.byId.get(e.t);
+        if (!a || !b) return null;
+        return { key: e.key, lonA: a.lon, latA: a.lat, lonB: b.lon, latB: b.lat, audio: e.audio };
+      }).filter(Boolean);
+      window.SoundPhysics.setWorld(edges);
+      syncCamera();
+    } catch (err) {
+      chatterLoaded = null;
+    }
+  }
+  function drawSoundLinks(g) {
+    if (!window.SoundPhysics || !window.SoundPhysics.on) return;
+    const view = window.SoundPhysics.view();
+    if (!view.length) return;
+    const solo = window.SoundPhysics.soloKey;
+    g.save();
+    for (const v of view) {
+      const isSolo = solo === v.key;
+      g.beginPath(); g.moveTo(v.x1, v.y1); g.lineTo(v.x2, v.y2);
+      g.strokeStyle = isSolo ? "rgba(255,235,190,0.95)" : `rgba(150,225,255,${0.10 + 0.5 * v.g})`;
+      g.lineWidth = isSolo ? 2.4 : 0.8 + 1.6 * v.g;
+      if (isSolo) { g.shadowColor = "rgba(255,170,90,0.9)"; g.shadowBlur = 14; }
+      g.stroke();
+      g.shadowBlur = 0;
+      if (isSolo) {
+        for (const [x, y] of [[v.x1, v.y1], [v.x2, v.y2]]) {
+          g.beginPath(); g.arc(x, y, 5, 0, Math.PI * 2);
+          g.strokeStyle = "rgba(255,200,120,0.95)"; g.lineWidth = 1.6; g.stroke();
+        }
+      }
     }
     g.restore();
   }
@@ -326,6 +390,8 @@
     resetEpidemic();
     $("pop").textContent = `${w.nodes.length} agents · ${S.cities.filter((c) => c.agents.length).length} offices`;
     drawBase();
+    syncCamera();
+    loadChatter();
   }
 
   function makeSpecks(a, r) {
@@ -1078,6 +1144,12 @@
       startRun(target.id);
       return;
     }
+    // with the soundscape on, a click on a contact link solos that conversation
+    if (!a && window.SoundPhysics && window.SoundPhysics.on) {
+      const key = window.SoundPhysics.pick(e.clientX, e.clientY);
+      if (key) { window.SoundPhysics.solo(key); drawBase(); toast(`Listening to link ${key}. Click empty map or press Esc to release.`); return; }
+      if (window.SoundPhysics.soloKey) { window.SoundPhysics.release(); drawBase(); }
+    }
     if (a) { showCard(a, e.clientX, e.clientY); filterCases(a.id); }
     else hideCard();
   });
@@ -1445,6 +1517,30 @@
     };
     $("close-intel").onclick = closeIntel;
     $("zoom-reset").onclick = () => zoomHome();
+    const sndBtn = $("sound-toggle");
+    if (sndBtn && window.SoundPhysics) {
+      sndBtn.onclick = async () => {
+        if (window.SoundPhysics.on) {
+          window.SoundPhysics.disable();
+          sndBtn.classList.remove("on");
+          sndBtn.textContent = "🔇 Sound";
+          sndBtn.title = "Turn the world's chatter on (Voxtral)";
+          drawBase();
+          return;
+        }
+        const ok = await window.SoundPhysics.enable();
+        sndBtn.classList.toggle("on", !!ok);
+        sndBtn.textContent = ok ? "🔊 Sound" : "🔇 Sound";
+        sndBtn.title = ok ? "Click a contact link to solo that conversation. Esc releases."
+                          : "This browser has no Web Audio support";
+        if (ok) { loadChatter(); syncCamera(); drawBase(); }
+      };
+    }
+    addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && window.SoundPhysics && window.SoundPhysics.soloKey) {
+        window.SoundPhysics.release(); drawBase();
+      }
+    });
     $("news-more").onclick = () => { $("headline-list").innerHTML = $("headlines").innerHTML || "<div class='muted'>No headlines yet.</div>"; $("headline-list").classList.toggle("hidden"); };
     $("replay").onclick = replay;
     for (const b of document.querySelectorAll(".speed button")) b.onclick = () => setSpeed(+b.dataset.speed);
@@ -1466,7 +1562,7 @@
         hideCard(); closeIntel(); $("headline-list").classList.add("hidden");
       }
     });
-    addEventListener("resize", () => { resize(); drawCurve(); });
+    addEventListener("resize", () => { resize(); drawCurve(); syncCamera(); });
     // Light/dark theme (theme.js): buttons in Setup, and a re-skin on every change.
     const markTheme = () => {
       const pref = window.ChonkTheme ? ChonkTheme.current() : "dark";

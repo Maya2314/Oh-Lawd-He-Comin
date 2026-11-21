@@ -374,6 +374,45 @@ IPv4-only networks. The pooled user is `postgres.<project-ref>`; port 5432 is se
 6543 is transaction mode (no prepared statements). Percent-encode special characters in the
 password, then check the connection with `python -m chonkvid db-check`.
 
+## The world map has ears
+
+The `/world` view places the agents at the offices on the map, and every contact link
+between two of them is a conversation. Turn on **Sound** (top right) and the map becomes a
+small sound-physics engine:
+
+- Distance is measured from the camera centre to the link, so links near you are loud and
+  links across the planet are quiet, and the radius you can hear shrinks as you zoom in.
+- Distance is muffling, not just volume: a far link is low-passed to about 400 Hz and a near
+  one opens to 7 kHz, which is why zooming in on a city sounds like walking into a room.
+- Clicking a link solos it. Everything else ducks to 6% and drops to a 400 Hz muffle, the
+  clicked pair comes forward at full bandwidth, and each speaker is panned to their own end
+  of the link. Esc releases.
+- Underneath is a filtered-noise bed standing in for the crowd you cannot pick out; it fades
+  as local voices take over.
+
+The voices are Voxtral (`voxtral-mini-tts-3-0`), not the browser's speech synthesis. Each
+link speaks the language of the office it sits in, so Paris and Montreal chatter in French,
+Berlin in German, Madrid in Spanish, and the English offices in English. Lines are written
+from the agents' own names and the marker is kept in the sentence, and each link has three
+variants so a street of links is not one voice on repeat:
+
+```bash
+curl -s localhost:8790/api/world/chatter | jq '.edges[0]'
+curl -s "localhost:8790/api/world/chatter/audio?n=40&seed=0&s=0&t=1&who=a&lang=fr" -o fr.mp3
+```
+
+Audio is generated once and cached on disk (`results/sound/`), so a second click is instant.
+Prewarm the busiest links before a demo and the first click never waits on the API:
+
+```bash
+python -m chonkvid soundscape -n 40 --seed 0 --limit 24
+```
+
+`POST /api/world/chatter` takes the language map the front-end derives from each agent's
+office (`{"n": 40, "seed": 0, "langs": {"12": "fr"}}`); `GET` is the same index in English.
+Everything fails silent: no Web Audio, no key, or no clips simply means no sound, never an
+error on the map.
+
 ## Provenance
 
 The scaffold (simulation, mock mode, dashboard) was prepared on the night of 20–21 Nov

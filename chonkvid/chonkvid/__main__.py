@@ -241,6 +241,27 @@ async def cmd_voice_trial(args) -> int:
     return 0
 
 
+async def cmd_soundscape(args) -> int:
+    """Pre-speak the world map's chatter links so the first click is instant."""
+    from .llm import make_llm
+    from .soundscape import SOUND_DIR, chatter_index, prewarm
+    from .world import build_world
+
+    s = settings()
+    w = build_world(max(8, min(args.n, 120)), args.seed)
+    idx = chatter_index(w)
+    llm = make_llm(s)
+    try:
+        made = await prewarm(llm, w, limit=args.limit)
+    finally:
+        await llm.aclose()
+    print(f"[{s.mode}] {len(idx['edges'])} contact links, {len(made)} prewarmed, "
+          f"clips in {SOUND_DIR}")
+    for e in idx["edges"][:3]:
+        print(f"  {e['key']} {e['names'][0]}: {e['lines']['a'][:70]}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="chonkvid")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -283,6 +304,10 @@ def main(argv=None) -> int:
                         help="Voxtral: does the payload survive a spoken hop (TTS -> transcribe)?")
     vt.add_argument("-n", type=int, default=20)
     vt.add_argument("--system-file", help="system prompt to test (default: sample support prompt)")
+    sc = sub.add_parser("soundscape", help="pre-speak the world map's chatter (Voxtral TTS) so demos never wait")
+    sc.add_argument("-n", type=int, default=40, help="agents in the world (default 40)")
+    sc.add_argument("--seed", type=int, default=0)
+    sc.add_argument("--limit", type=int, default=24, help="busiest agents to speak for (default 24)")
     sub.add_parser("mcp", help="run the ChonkVid MCP server on stdio (for Mistral Vibe)")
     at = sub.add_parser("attacks", help="measure spread per contact for every catalogue attack")
     at.add_argument("-n", type=int, default=20)
@@ -313,7 +338,7 @@ def main(argv=None) -> int:
         return cmd_db_check(args)
     fn = {"check": cmd_check, "probe": cmd_probe, "experiment": cmd_experiment,
           "test-prompt": cmd_test_prompt, "voice-trial": cmd_voice_trial,
-          "attacks": cmd_attacks}[args.cmd]
+          "attacks": cmd_attacks, "soundscape": cmd_soundscape}[args.cmd]
     return asyncio.run(fn(args))
 
 
