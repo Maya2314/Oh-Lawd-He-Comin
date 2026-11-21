@@ -420,6 +420,49 @@ async def ws_run(ws: WebSocket):
             pass
 
 
+@app.post("/api/voice/ask")
+async def voice_ask(payload: dict):
+    """A spoken question to the WHO, answered in text and in speech.
+
+    Body: {"audio_b64": <recorded mp3/webm>, "sitrep": "<optional latest report>"}.
+    Returns {"question", "answer", "voice_id", "audio_b64"}.
+    """
+    import base64
+
+    from .voice import speak, transcribe, VOICE_ID
+
+    raw = str(payload.get("audio_b64", "")).strip()
+    if not raw:
+        raise HTTPException(400, "audio_b64 required")
+    s = settings()
+    if s.mode != "live":
+        raise HTTPException(400, "Voxtral needs MISTRAL_API_KEY (mock mode has no audio)")
+    try:
+        audio = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(400, "audio_b64 is not valid base64")
+    llm = make_llm(s)
+    try:
+        question = (await transcribe(llm, audio)).strip()
+        if not question:
+            raise HTTPException(422, "could not hear a question in that audio")
+        latest = str(payload.get("sitrep", "")).strip()[:4000]
+        system = scenario.WHO_SYSTEM
+        if latest:
+            system += ("\n\nThe most recent situation report from this outbreak, "
+                       "which the question is probably about:\n" + latest)
+        answer = await llm.chat(s.who_model, [
+            {"role": "system", "content": system},
+            {"role": "user", "content": question},
+        ], temperature=0.2, max_tokens=400)
+        answer = str(answer).strip()
+        spoken = await speak(llm, answer[:1500])
+    finally:
+        await llm.aclose()
+    return {"question": question, "answer": answer, "voice_id": VOICE_ID,
+            "audio_b64": base64.b64encode(spoken).decode()}
+
+
 @app.post("/api/speak")
 async def speak_endpoint(payload: dict):
     """WHO situation report read aloud by Voxtral TTS (voxtral-mini-tts-3-0)."""

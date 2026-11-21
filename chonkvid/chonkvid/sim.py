@@ -227,13 +227,15 @@ async def run_epidemic(llm, detector: Detector, cfg: EpidemicConfig,
                                resisted=dict(st.resisted),
                                parents=dict(st.parent), contacts=dict(st.contacts),
                                names=names, vaccinated=vaccinated, patient_zero=p0,
-                               agent_model=agent_model, source=llm.source)
+                               agent_model=agent_model, source=llm.source,
+                               contacts_per_tick=cfg.contacts_per_tick)
                 try:
                     # Cap the whole agent sitrep; past the budget, fall back to chat.
                     report = await asyncio.wait_for(who.sitrep(view),
                                                     getattr(who, "budget_s", 240.0))
                     yield {"type": "sitrep", "tick": tick, "text": report.text,
-                           "structured": report.as_dict(), "mode": "agent"}
+                           "structured": report.as_dict(),
+                           "mode": getattr(who, "mode_name", "agent")}
                     continue
                 except Exception as exc:                  # fall back, never fail the run
                     yield {"type": "sitrep_error", "tick": tick,
