@@ -165,6 +165,10 @@ def test_engine_has_a_real_mute_and_speech_bubbles():
     js = c.get("/static/world/sound.js").text
     assert "killEdge" in js and "sources.push" in js, "mute must stop scheduled sources"
     assert "active()" in js, "the bubbles need the engine's live list"
+    # silence must never be dressed up as playback: the engine refuses to start sources into
+    # a suspended context, and offers a probe that tells the graph apart from the device
+    assert 'ctx.state !== "running"' in js
+    assert "probe()" in js and "diagnose()" in js
     world = c.get("/static/world/world.js").text
     assert "drawBubble" in world and "SoundPhysics.active()" in world
     assert 'zoom-in' in world and 'zoom-out' in world

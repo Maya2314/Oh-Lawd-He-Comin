@@ -305,10 +305,44 @@ def test_dotenv_inline_comment_and_quotes(tmp_path, monkeypatch):
     assert os.environ["PLAIN"] == "x#y"
 
 
-def test_suite_writes_outside_the_repo():
-    from chonkvid.config import ROOT
-    from chonkvid.experiment import RESULTS, RUNS
-    assert ROOT not in RESULTS.parents and ROOT not in RUNS.parents
+def test_suite_defaults_are_gitignored():
+    """Run output may live in the checkout, but git must ignore it.
+
+    Run in a subprocess with a cleaned environment: other tests set CHONKVID_RESULTS_DIR to
+    a temp path, and pytest-randomly means this test can run after one of those, which made
+    the old "outside ROOT" assertion fail depending on order rather than on the code -- and
+    a clean environment shows the defaults are chonkvid/results and chonkvid/runs anyway.
+    """
+    import json
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = (
+        "import json;"
+        "from chonkvid.config import ROOT;"
+        "from chonkvid.experiment import RESULTS, RUNS;"
+        "print(json.dumps([str(ROOT), str(RESULTS), str(RUNS)]))"
+    )
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CHONKVID_")}
+    env["CHONKVID_MODE"] = "mock"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                         env=env, cwd=str(Path(__file__).resolve().parents[1]), timeout=120)
+    assert out.returncode == 0, out.stderr
+    root, results, runs = json.loads(out.stdout.strip().splitlines()[-1])
+    # The defaults do land inside the checkout (chonkvid/results, chonkvid/runs), which is
+    # fine as long as git ignores them: that is the property that matters, and unlike the
+    # old "outside ROOT" assertion it does not depend on test order or leftover env vars.
+    root_path = Path(root)
+    ignore_lines = [ln.strip() for ln in (root_path / ".gitignore").read_text().splitlines()]
+    for path in (results, runs):
+        rel = Path(path).name
+        # check the pattern text, not `git check-ignore`: with a trailing-slash rule
+        # ("results/") git refuses to match a path that does not exist yet, which is
+        # exactly the state of a fresh CI clone
+        assert f"{rel}/" in ignore_lines or rel in ignore_lines, (
+            f"{rel} is not gitignored, a run would dirty the tree")
 
 
 def test_experiment_recording_prefixed_with_source(llm, det):
