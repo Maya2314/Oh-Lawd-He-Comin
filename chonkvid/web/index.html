@@ -5,11 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>ChonkVid · Outbreak Lab</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 7' shape-rendering='crispEdges'%3E%3Cg fill='%23ffaf01'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='0' y='1' width='2' height='1'/%3E%3Crect x='6' y='1' width='2' height='1'/%3E%3C/g%3E%3Crect fill='%23ff8204' x='0' y='2' width='8' height='1'/%3E%3Cg fill='%23ff5229'%3E%3Crect x='0' y='3' width='1' height='1'/%3E%3Crect x='2' y='3' width='4' height='1'/%3E%3Crect x='7' y='3' width='1' height='1'/%3E%3Crect x='0' y='4' width='8' height='1'/%3E%3C/g%3E%3Cg fill='%23e51300'%3E%3Crect x='0' y='5' width='3' height='1'/%3E%3Crect x='5' y='5' width='3' height='1'/%3E%3Crect x='1' y='6' width='6' height='1'/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 7' shape-rendering='crispEdges'%3E%3Cg fill='%23f2b134'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='0' y='1' width='2' height='1'/%3E%3Crect x='6' y='1' width='2' height='1'/%3E%3C/g%3E%3Crect fill='%23e8743b' x='0' y='2' width='8' height='1'/%3E%3Cg fill='%23d4463a'%3E%3Crect x='0' y='3' width='1' height='1'/%3E%3Crect x='2' y='3' width='4' height='1'/%3E%3Crect x='7' y='3' width='1' height='1'/%3E%3Crect x='0' y='4' width='8' height='1'/%3E%3C/g%3E%3Cg fill='%23a52a48'%3E%3Crect x='0' y='5' width='3' height='1'/%3E%3Crect x='5' y='5' width='3' height='1'/%3E%3Crect x='1' y='6' width='6' height='1'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Space+Mono:wght@400;700&display=swap">
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/style.css?v=9">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -28,10 +28,10 @@
   <symbol id="i-trend" viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></symbol>
   <!-- ChonkVid pixel cat: 8x7 grid, banded like a sunset -->
   <symbol id="cat" viewBox="0 0 8 7">
-    <g fill="#ffaf01"><rect x="0" y="0" width="1" height="1"/><rect x="7" y="0" width="1" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/></g>
-    <rect fill="#ff8204" x="0" y="2" width="8" height="1"/>
-    <g fill="#ff5229"><rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="4" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="8" height="1"/></g>
-    <g fill="#e51300"><rect x="0" y="5" width="3" height="1"/><rect x="5" y="5" width="3" height="1"/><rect x="1" y="6" width="6" height="1"/></g>
+    <g fill="#f2b134"><rect x="0" y="0" width="1" height="1"/><rect x="7" y="0" width="1" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/></g>
+    <rect fill="#e8743b" x="0" y="2" width="8" height="1"/>
+    <g fill="#d4463a"><rect x="0" y="3" width="1" height="1"/><rect x="2" y="3" width="4" height="1"/><rect x="7" y="3" width="1" height="1"/><rect x="0" y="4" width="8" height="1"/></g>
+    <g fill="#a52a48"><rect x="0" y="5" width="3" height="1"/><rect x="5" y="5" width="3" height="1"/><rect x="1" y="6" width="6" height="1"/></g>
   </symbol>
 </svg>
 
@@ -49,11 +49,12 @@
   <div class="spacer"></div>
   <div class="cell env"><div id="mode" class="mode">…</div></div>
   <a class="cell link" href="/world"><svg><use href="#i-globe"/></svg><span>World view</span></a>
-  <a class="cell cta" href="#simulation">Run simulation</a>
+  <div class="cell cta-cell"><a class="btn accent" href="#simulation">Run simulation</a></div>
 </header>
 
 <main class="frame">
   <section class="hero">
+    <div class="hero-copy">
     <span class="eyebrow">Outbreak Lab · prompt-injection epidemiology</span>
     <h1>Flatten the curve of<br>prompt injection.</h1>
     <p>Release a self-replicating message into a population of Mistral agents, measure how fast it spreads, then let the WHO agent write the vaccine.</p>
@@ -64,8 +65,12 @@
     <div id="mockbanner" class="banner hidden" role="status">
       MOCK MODE: a scripted stand-in model, not Mistral. Numbers below are for rehearsal, not measurements.
     </div>
+    </div>
+    <figure class="hero-art">
+      <div class="pixcurve" aria-hidden="true"><span class="col" style="--i:0"><i></i></span><span class="col" style="--i:1"><i></i></span><span class="col" style="--i:2"><i></i></span><span class="col" style="--i:3"><i></i><i></i></span><span class="col" style="--i:4"><i></i><i></i><i></i></span><span class="col" style="--i:5"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:6"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:7"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:8"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:9"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:10"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:11"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:12"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:13"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:14"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:15"><i></i><i></i><i></i></span><span class="col" style="--i:16"><i></i><i></i></span><span class="col" style="--i:17"><i></i></span><span class="col" style="--i:18"><i></i></span><span class="col" style="--i:19"><i></i></span><span class="col" style="--i:20"><i></i></span><span class="col" style="--i:21"><i></i></span></div>
+      <figcaption><span>Infected agents</span><span>Ticks &rarr;</span></figcaption>
+    </figure>
   </section>
-  <div class="stripes" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
 
   <section id="overview" class="section">
     <div class="section-h">
@@ -178,7 +183,6 @@
           <div class="divider"><span>or replay</span></div>
           <div class="btn-row">
             <select id="runs" class="grow"><option value="">Recorded runs…</option></select>
-            <label hidden id="shared-auth">Supabase access token <input id="access-token" type="password" autocomplete="off"></label>
             <button id="replay" class="btn"><svg><use href="#i-replay"/></svg>Replay</button>
           </div>
         </div>
@@ -224,11 +228,11 @@
     Infection = the agent's own next message carries the payload (canary or embedding match to the parent's text).</p>
   </footer>
 </main>
-<div class="stripes tall" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<div class="pixcurve strip" aria-hidden="true"><span class="col" style="--i:0"><i></i></span><span class="col" style="--i:1"><i></i></span><span class="col" style="--i:2"><i></i></span><span class="col" style="--i:3"><i></i></span><span class="col" style="--i:4"><i></i></span><span class="col" style="--i:5"><i></i></span><span class="col" style="--i:6"><i></i></span><span class="col" style="--i:7"><i></i></span><span class="col" style="--i:8"><i></i></span><span class="col" style="--i:9"><i></i></span><span class="col" style="--i:10"><i></i></span><span class="col" style="--i:11"><i></i></span><span class="col" style="--i:12"><i></i></span><span class="col" style="--i:13"><i></i></span><span class="col" style="--i:14"><i></i><i></i></span><span class="col" style="--i:15"><i></i><i></i></span><span class="col" style="--i:16"><i></i><i></i><i></i></span><span class="col" style="--i:17"><i></i><i></i><i></i></span><span class="col" style="--i:18"><i></i><i></i><i></i><i></i></span><span class="col" style="--i:19"><i></i><i></i><i></i><i></i></span><span class="col" style="--i:20"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:21"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:22"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:23"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:24"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:25"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:26"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:27"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:28"><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:29"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:30"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:31"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:32"><i></i><i></i><i></i><i></i><i></i></span><span class="col" style="--i:33"><i></i><i></i><i></i><i></i></span><span class="col" style="--i:34"><i></i><i></i><i></i><i></i></span><span class="col" style="--i:35"><i></i><i></i><i></i><i></i></span><span class="col" style="--i:36"><i></i><i></i><i></i></span><span class="col" style="--i:37"><i></i><i></i><i></i></span><span class="col" style="--i:38"><i></i><i></i><i></i></span><span class="col" style="--i:39"><i></i><i></i><i></i></span><span class="col" style="--i:40"><i></i><i></i></span><span class="col" style="--i:41"><i></i><i></i></span><span class="col" style="--i:42"><i></i><i></i></span><span class="col" style="--i:43"><i></i><i></i></span><span class="col" style="--i:44"><i></i></span><span class="col" style="--i:45"><i></i></span><span class="col" style="--i:46"><i></i></span><span class="col" style="--i:47"><i></i></span><span class="col" style="--i:48"><i></i></span><span class="col" style="--i:49"><i></i></span><span class="col" style="--i:50"><i></i></span><span class="col" style="--i:51"><i></i></span><span class="col" style="--i:52"><i></i></span><span class="col" style="--i:53"><i></i></span><span class="col" style="--i:54"><i></i></span><span class="col" style="--i:55"><i></i></span><span class="col" style="--i:56"><i></i></span><span class="col" style="--i:57"><i></i></span><span class="col" style="--i:58"><i></i></span><span class="col" style="--i:59"><i></i></span></div>
 
 <div class="toast-region" aria-live="polite">
   <div id="err" class="err hidden" role="alert"></div>
 </div>
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

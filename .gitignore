@@ -14,3 +14,16 @@ demo/.env
 demo/_raw/
 demo/_frames*/
 demo/voice/
+
+# Pre-event strategy and engine artifacts (not for judges)
+/command-centre/
+/evidence/
+DECISION-BRIEF.md
+ENGINE-RUN-RECONCILIATION.md
+FINAL-VALIDATION.md
+FUNNEL-FINAL-VERDICT.md
+IDEA-STRATEGY.md
+PASS1-SANITIZED-BRIEF.md
+HACKATHON.md
+skills-lock.json
+/.agents/

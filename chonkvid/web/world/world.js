@@ -15,23 +15,36 @@
 
   // ------------------------------------------------------------------ colour code
   const STATES = [
-    { key: "N", label: "Normal", color: cv("--c-normal"),
+    { key: "N", css: "--c-normal", label: "Normal", color: cv("--c-normal"),
       def: "Not reached by the virus yet." },
-    { key: "S", label: "Susceptible", color: cv("--c-sus"),
+    { key: "S", css: "--c-sus", label: "Susceptible", color: cv("--c-sus"),
       def: "Reached by an infected contact but not infected. Can still catch it." },
-    { key: "E", label: "Exposed", color: cv("--c-exp"),
+    { key: "E", css: "--c-exp", label: "Exposed", color: cv("--c-exp"),
       def: "Has the virus in hand right now. The next message decides whether it spreads." },
-    { key: "I", label: "Infected", color: cv("--c-inf"),
+    { key: "I", css: "--c-inf", label: "Infected", color: cv("--c-inf"),
       def: "Spreading: its own messages carry the virus on." },
-    { key: "V", label: "Vaccinated", color: cv("--c-vac"),
+    { key: "V", css: "--c-vac", label: "Vaccinated", color: cv("--c-vac"),
       def: "Given the hardened system prompt, and not infected." },
-    { key: "R", label: "Recovered", color: cv("--c-rec"),
+    { key: "R", css: "--c-rec", label: "Recovered", color: cv("--c-rec"),
       def: "No longer spreading, and immune for the rest of the run." },
   ];
   const COLOR = Object.fromEntries(STATES.map((s) => [s.key, s.color]));
   const LABEL = Object.fromEntries(STATES.map((s) => [s.key, s.label]));
-  const ROUTE_RED = "255, 70, 70";
-  const VENUE_CYAN = "95, 212, 255";
+  // Every canvas colour comes from CSS tokens so the map follows the light/dark theme.
+  // readTheme() refreshes them in place (state colours, map palette, country fills).
+  let ROUTE_RED = "", VENUE_RGB = "";
+  const MAP = {};
+  const MAP_KEYS = ["ocean", "land", "land-2", "coast", "border", "grid", "label-bg", "label-ink", "label-tag",
+    "pin", "pin-edge", "outline", "speck", "focus", "plane", "glow-rgb", "rec-rgb", "pick-rgb", "risk-lo", "risk-hi",
+    "curve-axis", "curve-grid", "curve-empty", "curve-n", "end-bad", "end-mid", "end-good"];
+  function readTheme() {
+    const live = getComputedStyle(document.documentElement);
+    const get = (n) => live.getPropertyValue(n).trim();
+    for (const st of STATES) { st.color = get(st.css); COLOR[st.key] = st.color; }
+    for (const k of MAP_KEYS) MAP[k] = get("--map-" + k);
+    ROUTE_RED = get("--map-route-rgb"); VENUE_RGB = get("--map-venue-rgb");
+    for (const c of S.countries || []) c.fill = landColor(c);
+  }
 
   // ------------------------------------------------------------------ offices
   // Agents are placed at Mistral AI's offices. `share` is the fraction of teams
@@ -150,34 +163,24 @@
     const g = c.getContext("2d");
     for (let i = 0; i < 1400; i++) {
       const a = Math.random() * 0.06;
-      g.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a * 1.5})`;
+      g.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
       g.fillRect(Math.random() * 160, Math.random() * 160, 1 + Math.random() * 2, 1 + Math.random() * 2);
     }
     return c;
   }
 
+  // Flat atlas land: two theme tones, each country nudged by a stable hash so borders read.
   function landColor(f) {
-    const [lon, lat] = d3.geoCentroid(f);
     const h = hash(f.id || f.properties.name) % 1000 / 1000;
-    const alat = Math.abs(lat);
-    let c;
-    if (alat > 60) c = d3.color("#9fae95");
-    else if ((lat > 14 && lat < 35 && lon > -18 && lon < 62) || (lat < -18 && lat > -36 && lon > 112 && lon < 152)) c = d3.color("#c4a165");
-    else if (lat > 35 && lat < 50 && lon > 45 && lon < 115) c = d3.color("#a99c6b");
-    else if (alat < 13) c = d3.color("#3f6d31");
-    else c = d3.color("#5f7f3d");
-    return c.brighter(h * 0.35 - 0.12).formatHex();
+    return d3.interpolateRgb(MAP.land, MAP["land-2"])(h).toString();
   }
 
   function drawBase() {
     const g = bctx;
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     // ocean
-    const og = g.createLinearGradient(0, 0, 0, H);
-    og.addColorStop(0, "#0b3c5a"); og.addColorStop(0.5, "#0d4a6b"); og.addColorStop(1, "#082b44");
-    g.fillStyle = og; g.fillRect(0, 0, W, H);
+    g.fillStyle = MAP.ocean; g.fillRect(0, 0, W, H);
     if (!noise) noise = makeNoise();
-    g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
     if (!S.land) return;
 
     g.save();
@@ -186,30 +189,26 @@
     const lw = 1 / T.k;
 
     // graticule
-    g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = "rgba(160,220,255,0.06)"; g.lineWidth = lw; g.stroke();
+    g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = MAP.grid; g.lineWidth = lw; g.stroke();
 
-    // land glow + shadow
-    g.save();
-    g.shadowColor = "rgba(0, 10, 20, 0.75)"; g.shadowBlur = 18 * DPR; g.shadowOffsetY = 3 * DPR;
-    g.beginPath(); path(S.land); g.fillStyle = "#4c6a37"; g.fill();
-    g.restore();
-    g.beginPath(); path(S.land); g.strokeStyle = "rgba(140, 220, 255, 0.35)"; g.lineWidth = 3.5 * lw; g.stroke();
+    // coastline halo
+    g.beginPath(); path(S.land); g.strokeStyle = MAP.coast; g.lineWidth = 3 * lw; g.stroke();
 
     for (const c of S.countries) { g.beginPath(); path(c); g.fillStyle = c.fill; g.fill(); }
 
     // texture over land
     g.save(); g.beginPath(); path(S.land); g.clip();
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    g.globalAlpha = 0.9; g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
+    g.globalAlpha = 0.5; g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
     g.restore();
 
-    g.beginPath(); path(S.borders); g.strokeStyle = "rgba(25, 35, 20, 0.55)"; g.lineWidth = 0.7 * lw; g.stroke();
-    g.beginPath(); path(S.land); g.strokeStyle = "rgba(255, 255, 255, 0.22)"; g.lineWidth = 0.8 * lw; g.stroke();
+    g.beginPath(); path(S.borders); g.strokeStyle = MAP.border; g.lineWidth = 0.7 * lw; g.stroke();
+    g.beginPath(); path(S.land); g.strokeStyle = MAP.border; g.lineWidth = 0.9 * lw; g.stroke();
     g.restore();
 
     // flight routes between cities that share a contact (static, faint)
     g.save();
-    g.setLineDash([3, 5]); g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,0.13)";
+    g.setLineDash([3, 5]); g.lineWidth = 1; g.strokeStyle = MAP.grid;
     for (const r of S.routes) {
       const a = [sx(r.a.p), sy(r.a.p)], b = [sx(r.b.p), sy(r.b.p)], c = ctrl(a, b);
       g.beginPath(); g.moveTo(a[0], a[1]); g.quadraticCurveTo(c[0], c[1], b[0], b[1]); g.stroke();
@@ -218,16 +217,16 @@
 
     // office pins and labels; a label that would overlap a bigger office's is skipped
     g.save();
-    g.font = `700 ${T.k > 1.6 ? 14 : 12}px Rajdhani, sans-serif`;
+    g.font = `500 ${T.k > 1.6 ? 12 : 11}px "IBM Plex Mono", ui-monospace, monospace`;
     g.textAlign = "center"; g.textBaseline = "bottom";
     const placed = [];
     for (const c of [...(S.cities || [])].sort((a, b) => b.share - a.share)) {
       if (!c.agents.length) continue;
       const x = sx(c.p), y = sy(c.p);
-      // the pin: an orange diamond, Mistral's colour
-      g.save(); g.translate(x, y); g.rotate(Math.PI / 4);
-      g.fillStyle = "#ff7000"; g.strokeStyle = "#fff"; g.lineWidth = 1.2;
-      g.fillRect(-4, -4, 8, 8); g.strokeRect(-4, -4, 8, 8); g.restore();
+      // the pin: a square office marker in the heat accent
+      g.save(); g.translate(x, y);
+      g.fillStyle = MAP.pin; g.strokeStyle = MAP["pin-edge"]; g.lineWidth = 1.5;
+      g.fillRect(-4.5, -4.5, 9, 9); g.strokeRect(-4.5, -4.5, 9, 9); g.restore();
       const lift = (c.pods > 1 ? POD_RING(c.pods) * T.k * (proj.scale() * Math.PI / 180) : 0) + 16;
       const label = `${c.tag ? c.name + " · " + c.tag : c.name}  (${c.agents.length})`;
       const w = g.measureText(label).width + 10;
@@ -236,9 +235,9 @@
       if (!free) continue;
       const [lx, ly] = free;
       placed.push([lx, ly, w]);
-      g.fillStyle = "rgba(8,18,28,0.78)";
-      g.beginPath(); g.roundRect(lx - w / 2, ly - 17, w, 18, 4); g.fill();
-      g.fillStyle = c.tag ? "#ffb070" : "rgba(235,245,255,0.92)";
+      g.fillStyle = MAP["label-bg"];
+      g.beginPath(); g.roundRect(lx - w / 2, ly - 17, w, 18, 3); g.fill();
+      g.fillStyle = c.tag ? MAP["label-tag"] : MAP["label-ink"];
       g.fillText(label, lx, ly);
     }
     g.restore();
@@ -448,7 +447,7 @@
     for (const tr of pane.querySelectorAll("tr[data-agent]")) tr.onclick = () => { const a = S.byId.get(+tr.dataset.agent); zoomTo(a.lon, a.lat, 3); filterCases(a.id); };
   }
   const riskBar = (x) => `<span class="rbar"><span style="width:${Math.round((x || 0) * 100)}%;background:${riskColor(x || 0)}"></span></span>${pct(x)}`;
-  function riskColor(x) { return d3.interpolateRgb("#ffd21f", "#ff2a2a")(Math.min(1, Math.max(0, x))); }
+  function riskColor(x) { return d3.interpolateRgb(MAP["risk-lo"], MAP["risk-hi"])(Math.min(1, Math.max(0, x))); }
 
   function setDay(t) {
     S.tick = t;
@@ -627,7 +626,7 @@
     const feed = $("who");
     if (feed.querySelector(".empty")) feed.innerHTML = "";
     const d = document.createElement("div"); d.className = "item who";
-    d.innerHTML = `<div class="meta">🩺 WHO situation report · Day ${ev.tick}</div><div class="body">${esc(ev.text)}</div>`;
+    d.innerHTML = `<div class="meta">WHO situation report · Day ${ev.tick}</div><div class="body">${esc(ev.text)}</div>`;
     feed.prepend(d);
   }
   function filterCases(id) {
@@ -650,7 +649,7 @@
     const days = Math.max(+$("ticks").value || 12, S.history.length ? S.history[S.history.length - 1].tick : 0);
     const X = (t) => pad.l + ((w - pad.l - pad.r) * t) / Math.max(1, days);
     const Y = (v) => h - pad.b - ((h - pad.t - pad.b) * v) / n;
-    g.font = "11px Inter, sans-serif"; g.fillStyle = "#8aa4b8"; g.strokeStyle = "rgba(255,255,255,.07)";
+    g.font = "11px 'IBM Plex Mono', ui-monospace, monospace"; g.fillStyle = MAP["curve-axis"]; g.strokeStyle = MAP["curve-grid"];
     for (let i = 0; i <= 4; i++) {
       const y = Y((n * i) / 4); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(w - pad.r, y); g.stroke();
       g.fillText(Math.round((n * i) / 4), 4, y + 4);
@@ -658,7 +657,7 @@
     g.fillText("day", pad.l + 2, pad.t + 10);
     for (let t = 0; t <= days; t += Math.max(1, Math.round(days / 6))) g.fillText(t, X(t) - 3, h - 5);
     if (!S.history.length) {
-      g.fillStyle = "#5d7486"; g.font = "13px Inter, sans-serif"; g.fillText("The outbreak curve draws here during a run.", pad.l + 10, h / 2);
+      g.fillStyle = MAP["curve-empty"]; g.font = "13px Inter, sans-serif"; g.fillText("The outbreak curve draws here during a run.", pad.l + 10, h / 2);
       return;
     }
     const order = ["I", "E", "S", "N", "V", "R"]; // infected at the bottom, like an epi curve
@@ -669,7 +668,7 @@
       S.history.forEach((hh, i) => { const x = X(hh.tick), y = Y(upper[i]); i ? g.lineTo(x, y) : g.moveTo(x, y); });
       for (let i = S.history.length - 1; i >= 0; i--) g.lineTo(X(S.history[i].tick), Y(lower[i]));
       g.closePath();
-      g.fillStyle = k === "N" ? "#2a2f36" : COLOR[k];
+      g.fillStyle = k === "N" ? MAP["curve-n"] : COLOR[k];
       g.globalAlpha = k === "I" ? 0.95 : 0.75; g.fill(); g.globalAlpha = 1;
       lower = upper;
     }
@@ -701,8 +700,8 @@
       const path = d3.geoPath(proj, g);
       for (const [c, t] of S.countryTint) {
         t.cur += (t.target - t.cur) * 0.04; t.rec += (t.recT - t.rec) * 0.04;
-        if (t.cur > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(255, 24, 24, ${0.2 + t.cur * 0.4})`; g.fill(); }
-        else if (t.rec > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(40, 200, 90, ${t.rec * 0.16})`; g.fill(); }
+        if (t.cur > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(${MAP["glow-rgb"]}, ${0.14 + t.cur * 0.34})`; g.fill(); }
+        else if (t.rec > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(${MAP["rec-rgb"]}, ${t.rec * 0.16})`; g.fill(); }
       }
       g.restore();
     }
@@ -715,9 +714,9 @@
       const set = new Set(S.agents.map((a) => a.city.country).filter(Boolean));
       for (const c of set) {
         g.beginPath(); path(c);
-        g.fillStyle = c === S.hoverCountry ? `rgba(255,60,60,${0.35 + 0.15 * pulse})` : `rgba(255,80,80,${0.08 + 0.1 * pulse})`;
+        g.fillStyle = c === S.hoverCountry ? `rgba(${MAP["pick-rgb"]},${0.32 + 0.14 * pulse})` : `rgba(${MAP["pick-rgb"]},${0.08 + 0.1 * pulse})`;
         g.fill();
-        g.strokeStyle = `rgba(255,120,120,${0.5 + 0.4 * pulse})`; g.lineWidth = 1.4 / k; g.stroke();
+        g.strokeStyle = `rgba(${MAP["pick-rgb"]},${0.55 + 0.4 * pulse})`; g.lineWidth = 1.4 / k; g.stroke();
       }
       g.restore();
     }
@@ -727,7 +726,7 @@
       if (S.cat[a.id] !== "I") continue;
       const x = sx(a.p), y = sy(a.p), r = 26 * mk * (0.9 + 0.1 * Math.sin(now / 300 + a.id));
       const gr = g.createRadialGradient(x, y, 0, x, y, r);
-      gr.addColorStop(0, "rgba(255,30,30,0.55)"); gr.addColorStop(1, "rgba(255,30,30,0)");
+      gr.addColorStop(0, `rgba(${MAP["glow-rgb"]},0.5)`); gr.addColorStop(1, `rgba(${MAP["glow-rgb"]},0)`);
       g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
     }
 
@@ -737,7 +736,7 @@
       for (const q of a.specks) {
         const c = since > q.delay * 1500 ? cur : prev;
         const s = q.size * mk * (c === "I" ? 1.35 : 1);
-        g.fillStyle = c === "N" ? "rgba(10,12,14,0.85)" : COLOR[c];
+        g.fillStyle = c === "N" ? MAP.speck : COLOR[c];
         g.fillRect(sx(q.p) - s / 2, sy(q.p) - s / 2, s, s);
       }
     }
@@ -748,7 +747,7 @@
       if (now < r.t0) continue;
       const a = [sx(r.a.p), sy(r.a.p)], b = [sx(r.b.p), sy(r.b.p)];
       const t = Math.min(1, (now - r.t0) / r.dur), fade = t < 1 ? 1 : Math.max(0, 1 - (now - r.t0 - r.dur) / 700);
-      const rgb = r.venue ? VENUE_CYAN : ROUTE_RED;
+      const rgb = r.venue ? VENUE_RGB : ROUTE_RED;
       const dist = Math.hypot(b[0] - a[0], b[1] - a[1]);
       if (dist < 8) continue;
       const c = ctrl(a, b);
@@ -769,7 +768,7 @@
       if (t < 1 && dist > 50) { // plane at the head
         const h = qpt(a, c, b, t), h2 = qpt(a, c, b, Math.min(1, t + 0.01));
         g.translate(h[0], h[1]); g.rotate(Math.atan2(h2[1] - h[1], h2[0] - h[0]));
-        g.fillStyle = "#fff";
+        g.fillStyle = MAP.plane;
         g.beginPath(); g.moveTo(7, 0); g.lineTo(-5, -5); g.lineTo(-2, 0); g.lineTo(-5, 5); g.closePath(); g.fill();
       }
       g.restore();
@@ -790,8 +789,8 @@
         const rk = riskFor(a.id); if (rk == null) continue;
         const x = sx(a.p), y = sy(a.p), r = (7 + rk * 16) * Math.min(1.6, mk);
         const gr = g.createRadialGradient(x, y, 2, x, y, r);
-        gr.addColorStop(0, `rgba(255,${Math.round(200 - 170 * rk)},30,${0.15 + 0.5 * rk})`);
-        gr.addColorStop(1, "rgba(255,60,30,0)");
+        const rc = d3.color(riskColor(rk)); rc.opacity = 0.15 + 0.5 * rk;
+        gr.addColorStop(0, rc.toString()); rc.opacity = 0; gr.addColorStop(1, rc.toString());
         g.fillStyle = gr; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
       }
     }
@@ -801,24 +800,24 @@
       const x = sx(a.p), y = sy(a.p), c = S.cat[a.id];
       const r = (a === S.hover ? 6.5 : 4.6) * Math.min(1.6, mk);
       if (a.venue) {
-        g.save(); g.setLineDash([2, 2.5]); g.strokeStyle = `rgba(${VENUE_CYAN}, 0.85)`; g.lineWidth = 1.2;
+        g.save(); g.setLineDash([2, 2.5]); g.strokeStyle = `rgba(${VENUE_RGB}, 0.9)`; g.lineWidth = 1.2;
         g.beginPath(); g.arc(x, y, r + 3.5, 0, Math.PI * 2); g.stroke(); g.restore();
       }
       g.fillStyle = COLOR[c]; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-      g.lineWidth = 1.5; g.strokeStyle = c === "N" ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.95)"; g.stroke();
-      if (S.caseFilter === a.id) { g.strokeStyle = "#5fd4ff"; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 6, 0, Math.PI * 2); g.stroke(); }
+      g.lineWidth = 1.5; g.strokeStyle = MAP.outline; g.stroke();
+      if (S.caseFilter === a.id) { g.strokeStyle = MAP.focus; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 6, 0, Math.PI * 2); g.stroke(); }
     }
 
     // patient-zero bubble
     const pz = S.byId.get(S.patientZero);
     if (pz) {
       const x = sx(pz.p), y = sy(pz.p) - 30 - 3 * Math.sin(now / 400);
-      g.strokeStyle = "rgba(255,255,255,0.8)"; g.lineWidth = 1.5;
+      g.strokeStyle = MAP.outline; g.lineWidth = 1.5;
       g.beginPath(); g.moveTo(sx(pz.p), sy(pz.p) - 6); g.lineTo(x, y + 14); g.stroke();
       const gr = g.createRadialGradient(x - 4, y - 4, 2, x, y, 16);
-      gr.addColorStop(0, "#ffb08a"); gr.addColorStop(1, S.virus.accent);
+      gr.addColorStop(0, MAP["label-tag"]); gr.addColorStop(1, S.virus.accent);
       g.fillStyle = gr; g.beginPath(); g.arc(x, y, 15, 0, Math.PI * 2); g.fill();
-      g.lineWidth = 2; g.strokeStyle = "#fff"; g.stroke();
+      g.lineWidth = 2; g.strokeStyle = MAP.outline; g.stroke();
       g.font = "16px 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
       g.fillText(S.virus.glyph, x, y + 1);
     }
@@ -893,10 +892,10 @@
       <div class="chips">
         <span class="chip">${dot(c)} ${LABEL[c]}</span>
         ${S.vaccinated.has(a.id) ? `<span class="chip">${dot("V")} vaccinated</span>` : ""}
-        ${a.venue ? `<span class="chip">💬 group chat</span>` : ""}
+        ${a.venue ? `<span class="chip">group chat</span>` : ""}
         <span class="chip">${a.degree} contacts</span>
-        ${riskFor(a.id) != null ? `<span class="chip">🎯 ${pct(riskFor(a.id))} forecast risk</span>` : ""}
-        ${S.patientZero === a.id ? `<span class="chip">☣ patient zero</span>` : ""}
+        ${riskFor(a.id) != null ? `<span class="chip">${pct(riskFor(a.id))} forecast risk</span>` : ""}
+        ${S.patientZero === a.id ? `<span class="chip">patient zero</span>` : ""}
       </div>
       ${m ? `<div class="muted" style="font-size:12px;margin-bottom:4px">Day ${m.tick} · ${m.kind === "infected" ? "message that carried it on" : "reply that did not spread it"}${m.from != null ? ` · after ${esc(nameOf(m.from))}'s message` : ""}</div>
       <div class="msg">${esc(m.text)}</div>` : `<div class="muted">No messages yet.</div>`}`;
@@ -956,7 +955,7 @@
 
   function setRunningUI(on) {
     const go = $("go");
-    go.textContent = on ? "■ Stop outbreak" : "☣ Release outbreak";
+    go.textContent = on ? "Stop outbreak" : "Release outbreak";
     go.classList.toggle("primary", !on);
     $("virus").disabled = on;
   }
@@ -966,7 +965,7 @@
     const s = ev.summary, rate = s.attack_rate;
     $("end-kicker").textContent = `${S.virus.name.toUpperCase()} · ${policyName(s.policy).toUpperCase()}`;
     $("end-title").textContent = rate >= 0.6 ? "Global pandemic" : rate >= 0.25 ? "Major outbreak" : rate > 0 ? "Outbreak contained" : "It never took off";
-    $("end-title").style.color = rate >= 0.6 ? "#ff4a4a" : rate >= 0.25 ? "#ff9a3d" : "#4fe07a";
+    $("end-title").style.color = rate >= 0.6 ? MAP["end-bad"] : rate >= 0.25 ? MAP["end-mid"] : MAP["end-good"];
     $("e-attack").textContent = Math.round(rate * 100) + "%";
     $("e-peak").textContent = `${s.peak_infectious}`;
     $("e-peak-k").textContent = `peak infected (day ${s.peak_tick})`;
@@ -1051,7 +1050,7 @@
     $("legend").innerHTML = STATES.map((s) => `<li data-k="${s.key}" title="${esc(s.def)}"><i class="swatch" style="background:${s.color}"></i><span class="lab">${s.label}</span><span class="num">0</span></li>`).join("");
     $("mini-legend").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i>${s.label}</li>`).join("");
     $("defs").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i><span><b>${s.label}</b>: ${esc(s.def)}</span></li>`).join("") +
-      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
+      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_RGB})"></i><span><b>Dashed violet ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
   }
 
   function wire() {
@@ -1115,6 +1114,7 @@
   }
 
   async function init() {
+    readTheme();
     buildLegends();
     wire();
     selectVirus(VIRUSES[0].id, true);
@@ -1122,6 +1122,10 @@
     const all = topojson.feature(topo, topo.objects.countries).features.filter((f) => f.properties.name !== "Antarctica");
     S.countries = all;
     for (const c of all) { c.fill = landColor(c); c.centroid = d3.geoCentroid(c); }
+    matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+      readTheme(); buildLegends(); refreshCats(true); drawBase(); drawCurve();
+    });
+    if (document.fonts) document.fonts.ready.then(() => drawBase());
     S.land = { type: "FeatureCollection", features: all };
     S.borders = topojson.mesh(topo, topo.objects.countries, (a, b) => a !== b);
     resize();

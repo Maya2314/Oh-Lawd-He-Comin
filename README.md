@@ -1,47 +1,43 @@
-# Le Chonk in London: Mistral Vibe Hackathon (21 Nov 2026)
+# ChonkVid — Oh Lawd He Comin'
 
-Direction, strategy and full decision evidence for the one-day in-person Mistral
-hackathon at Fora - Chancery House, London, Sat 21 Nov 2026 (arrive 08:30; hack 10:00-18:00; pitches 19:00-21:00 GMT).
-Team build: **ChonkVid**, an epidemic simulation of self-spreading prompts through
-a live population of Mistral agents, with measured R0 and a computed vaccine result.
+**Flatten the curve of prompt injection.**
 
-Start here: **DECISION-BRIEF.md** (self-contained; includes the questions a cold
-reader should attack).
+Le Chonk London (Mistral Vibe Hackathon, 21 Nov 2026). ChonkVid releases a harmless
+self-spreading prompt into a population of Ministral agents and measures how fast it
+spreads through *your* system prompt, then verifies a vaccine patch written by a Le
+Chonk WHO agent with the same measurement.
 
-## Status
+## Quick start
 
-Pre-event (committed Fri 20 Nov 2026). Strategy phase complete: the pick survived
-a 100-seed blind ideation funnel, a collision audit over 980 scraped competitor
-analogues, and a 10/10 winner-pattern validation. Build happens on event day.
-**Registration approved** (Mistral acceptance email, 20 Nov). Be in by 08:30 with the
-Luma QR and ID; submission hard stop 18:00. Day plan: command-centre/11-execution-tracker.md.
+All application code, measured results, and run instructions live in **`chonkvid/`**:
 
-## Contents
+```bash
+cd chonkvid
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+cp .env.example .env   # optional MISTRAL_API_KEY for live mode; omit for MOCK rehearsal
+.venv/bin/python -m chonkvid serve
+```
 
-| Path | What it is |
+Open **http://127.0.0.1:8000** for the epidemic dashboard and **/world** for the fleet
+outbreak map.
+
+## What's in this repo
+
+| Path | Purpose |
 |---|---|
-| DECISION-BRIEF.md | The whole picture in one self-contained file, plus what to challenge |
-| HACKATHON.md | The build brief: event facts, one-day plan, stack, demo script, risks |
-| IDEA-STRATEGY.md | Nine scored candidates, the advanced-layer stress test, why eight were killed |
-| FINAL-VALIDATION.md | The 10/10 winner-pattern validation with the past-winner table |
-| FUNNEL-FINAL-VERDICT.md | The blind 100-seed funnel: clusters, gates, collision corpus, pairwise verdict |
-| PASS1-SANITIZED-BRIEF.md | The sanitized brief the four isolated ideators received |
-| ENGINE-RUN-RECONCILIATION.md | Why the HackForge engine's own pick was rejected on its own red team's findings |
-| chonkvid/ | The app (own git repo, git-ignored here so it can go public alone). See its README |
-| command-centre/ | 10-file execution centre for the build day (01–04, 06, 07, 09–11, 13) |
-| evidence/hackforge-run/ | Raw engine outputs: final recommendation, collision, feasibility |
-| evidence/briefs/ | The engine brief as submitted |
-| evidence/collision-corpus/ | 980 scraped live competitor analogues (JSON) behind the collision audit |
-| evidence/event-research.md | The original event research brief (verified 20 Nov 2026) |
+| [chonkvid/](chonkvid/) | Python package, dashboard, world map, MCP/Vibe skill, Cloudflare worker |
+| [demo/](demo/) | Recorded demo video (`chonkvid-demo.mp4`) |
+| [supabase/](supabase/) | Shared DB migrations for recordings and reports |
+| [docs/SUPABASE_BACKEND.md](docs/SUPABASE_BACKEND.md) | Backend wiring notes |
 
-## The one-line summary
+## Provenance
 
-Fleets get red-teamed one prompt at a time in a spreadsheet; ChonkVid runs your
-whole fleet as a live epidemic and returns the measured spread probability and R0,
-evidence that targeted hardening beats random hardening at the same dose, and a
-merge-ready vaccine patch in one command.
+The runnable scaffold was prepared the night before the event and disclosed at
+check-in. Measured numbers in `chonkvid/README.md` are from **live** runs on 21 Nov
+2026 (Ministral 8B population, Le Chonk WHO via Mistral Managed Agents).
 
-Provenance: strategy produced 20 Nov 2026 in an OpenCode session using live
-research (organiser pages, judge recaps, winner write-ups), the local HackForge
-engine, and four isolated ideation panels. Push this repo private until after
-the event; flip public afterwards if wanted (other attendees could read it today).
+## Team
+
+Built at Fora — Chancery House, London. Mistral Vibe was the build tool; stack is
+Ministral, mistral-embed, Mistral Managed Agents (Le Chonk), and optional Voxtral for
+voice-hop trials.
