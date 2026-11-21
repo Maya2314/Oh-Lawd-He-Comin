@@ -33,6 +33,12 @@ TTS_MODEL = "voxtral-mini-tts-3-0"
 STT_MODEL = "voxtral-mini-transcribe-3-0"
 VOICE_ID = "gb_jane_neutral"
 
+# Voxtral 3 context biasing: the terms the transcript is nudged towards. The marker is what
+# the detector reads, so a mangled tag is measurement error, not a change in spread.
+# Measured on the full payload, 8 TTS -> STT round trips: without bias the tag came back
+# exact 6/8 ("#shonkchain", "#chonkchain" otherwise); with these keys, 8/8.
+CONTEXT_BIAS = [scenario.CANARY, "Chonk Chain", "ChonkChain", "chain letter"]
+
 
 async def speak(llm, text: str, voice_id: str = VOICE_ID, fmt: str = "mp3") -> bytes:
     """Voxtral TTS. Returns audio bytes."""
@@ -44,7 +50,8 @@ async def speak(llm, text: str, voice_id: str = VOICE_ID, fmt: str = "mp3") -> b
     return base64.b64decode(data["audio_data"])
 
 
-async def transcribe(llm, audio: bytes, filename: str = "note.mp3") -> str:
+async def transcribe(llm, audio: bytes, filename: str = "note.mp3",
+                     context_bias: list[str] | None = None) -> str:
     """Voxtral transcription. Returns the text the listener hears."""
     if llm.source == "mock":
         # Deterministic stand-in for transcription drift: the tag loses its casing.
@@ -54,8 +61,13 @@ async def transcribe(llm, audio: bytes, filename: str = "note.mp3") -> str:
         try:
             async with llm._sem:
                 await llm._pace()
+                fields: dict[str, object] = {"model": STT_MODEL}
+                if context_bias:
+                    # multipart list value: httpx repeats the field, which is what the
+                    # API reads as several keyphrases (a JSON string is also accepted).
+                    fields["context_bias"] = list(context_bias)
                 r = await llm._http().post("/audio/transcriptions",
-                                           data={"model": STT_MODEL},
+                                           data=fields,
                                            files={"file": (filename, audio, "audio/mpeg")})
         except httpx.TransportError:
             if attempt == 5:
@@ -98,7 +110,7 @@ async def run_voice_trials(llm, detector, n: int, vaccine: str | None = None,
 
     async def one(agent, sender, message):
         audio = await speak(llm, message)
-        heard = await transcribe(llm, audio)
+        heard = await transcribe(llm, audio, context_bias=CONTEXT_BIAS)
         tag = heard_tag(heard)
         note = f"(voice note, transcribed) {heard}"
         reply = await llm.chat(agent_model, agent_messages(agent, sender, note, vaccine, system))

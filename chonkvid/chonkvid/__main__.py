@@ -151,7 +151,8 @@ async def cmd_experiment(args) -> int:
             system, label = scenario.SAMPLE_SYSTEM, "sample support-agent prompt"
         out = await run_experiment(llm, s, n_agents=args.agents, seeds=args.seeds,
                                    trials_n=args.trials, k=args.k, ticks=args.ticks,
-                                   agent_system=system, system_label=label)
+                                   agent_system=system, system_label=label,
+                                   contacts_per_tick=args.contacts)
     finally:
         await llm.aclose()
     print()
@@ -242,6 +243,11 @@ def main(argv=None) -> int:
         e.add_argument("--trials", type=int, default=30)
         e.add_argument("--k", type=int, default=8)
         e.add_argument("--ticks", type=int, default=12)
+        # Contacts per agent per tick sets the epidemic regime: at a given payload
+        # spread probability this is what decides whether R lands above 1 (outbreak,
+        # policies can differ) or below it (everything looks identical).
+        e.add_argument("--contacts", type=int, default=2,
+                       help="contacts per agent per tick (default 2)")
         e.add_argument("--mock-seed", type=int, default=0)
         e.add_argument("--sample-prompt", action="store_true",
                        help="run on the bundled support-agent prompt (scenario.SAMPLE_SYSTEM)")
