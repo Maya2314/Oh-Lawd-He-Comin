@@ -19,6 +19,7 @@ Env:
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 
@@ -39,8 +40,12 @@ def model_id() -> str:
 
 
 def model_label() -> str:
-    """Display name only: never put a local path on the projector."""
-    return os.path.basename(model_id().rstrip("\\/"))
+    """Display name only: never put a local path on the projector.
+
+    Splits on both / and \\ so a Windows path is shortened on Linux too
+    (os.path.basename only knows the host's own separator).
+    """
+    return re.split(r"[\\/]", model_id().rstrip("\\/"))[-1]
 
 
 def min_ticks() -> int:
