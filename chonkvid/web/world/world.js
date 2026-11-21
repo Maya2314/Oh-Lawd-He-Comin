@@ -36,7 +36,7 @@
     const cs = getComputedStyle(document.documentElement);
     const v = (n) => cs.getPropertyValue(n).trim();
     Object.assign(TH, {
-      ocean1: v("--map-ocean-1"), ocean2: v("--map-ocean-2"), ocean3: v("--map-ocean-3"),
+      ocean1: v("--map-ocean-1"), ocean2: v("--map-ocean-2"), ocean3: v("--map-ocean-3"), land: v("--map-land"),
       grat: v("--map-grat"), coastGlow: v("--map-coast-glow"), coast: v("--map-coast"),
       border: v("--map-border"), shadow: v("--map-shadow"), route: v("--map-route"),
       labelBg: v("--map-label-bg"), labelInk: v("--map-label-ink"), labelHq: v("--map-label-hq"),
@@ -88,7 +88,7 @@
     world: null, sig: "", agents: [], byId: new Map(), cityOf: new Map(), routes: [],
     phase: {}, touched: new Set(), vaccinated: new Set(), ever: new Set(), lastMsg: {},
     cat: {}, prevCat: {}, catAt: {}, patientZero: null, tick: 0, history: [], peak: 0,
-    countryTint: new Map(), countryFirst: new Set(),
+    countryFirst: new Set(),
     arcs: [], ripples: [],
     running: false, ws: null, queue: [], timer: null, speed: 1, lastSpeed: 1,
     picking: false, virus: VIRUSES[0], policy: "none", k: 8,
@@ -177,19 +177,6 @@
     return c;
   }
 
-  function landColor(f) {
-    const [lon, lat] = d3.geoCentroid(f);
-    const h = hash(f.id || f.properties.name) % 1000 / 1000;
-    const alat = Math.abs(lat);
-    let c;
-    if (alat > 60) c = d3.color("#9fae95");
-    else if ((lat > 14 && lat < 35 && lon > -18 && lon < 62) || (lat < -18 && lat > -36 && lon > 112 && lon < 152)) c = d3.color("#c4a165");
-    else if (lat > 35 && lat < 50 && lon > 45 && lon < 115) c = d3.color("#a99c6b");
-    else if (alat < 13) c = d3.color("#3f6d31");
-    else c = d3.color("#5f7f3d");
-    return c.brighter(h * 0.35 - 0.12).formatHex();
-  }
-
   function drawBase() {
     const g = bctx;
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -209,14 +196,12 @@
     // graticule
     g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = TH.grat; g.lineWidth = lw; g.stroke();
 
-    // land glow + shadow
+    // land: one plain colour for every country (theme token), with glow + shadow
     g.save();
     g.shadowColor = TH.shadow; g.shadowBlur = 18 * DPR; g.shadowOffsetY = 3 * DPR;
-    g.beginPath(); path(S.land); g.fillStyle = "#4c6a37"; g.fill();
+    g.beginPath(); path(S.land); g.fillStyle = TH.land; g.fill();
     g.restore();
     g.beginPath(); path(S.land); g.strokeStyle = TH.coastGlow; g.lineWidth = 3.5 * lw; g.stroke();
-
-    for (const c of S.countries) { g.beginPath(); path(c); g.fillStyle = c.fill; g.fill(); }
 
     // texture over land
     g.save(); g.beginPath(); path(S.land); g.clip();
@@ -413,7 +398,7 @@
   function resetEpidemic() {
     S.phase = {}; S.touched = new Set(); S.vaccinated = new Set(); S.ever = new Set(); S.lastMsg = {};
     S.cat = {}; S.prevCat = {}; S.catAt = {}; S.patientZero = null; S.tick = 0; S.history = []; S.peak = 0;
-    S.countryTint = new Map(); S.countryFirst = new Set(); S.arcs = []; S.ripples = []; S.milestones = new Set();
+    S.countryFirst = new Set(); S.arcs = []; S.ripples = []; S.milestones = new Set();
     S.runEnded = false; S.caseFilter = null;
     S.fc = null; S.fcChecks = []; S.fcNews = new Set(); S.fcWarned = false;
     for (const a of S.agents) { S.phase[a.id] = "S"; S.cat[a.id] = S.prevCat[a.id] = "N"; S.catAt[a.id] = 0; }
@@ -441,19 +426,6 @@
       counts[c]++;
     }
     renderCounts(counts);
-    // country tint target: share of that country's agents that are infected/exposed
-    const per = new Map();
-    for (const a of S.agents) {
-      const k = a.city.country; if (!k) continue;
-      const e = per.get(k) || { n: 0, i: 0, r: 0 }; e.n++;
-      if (S.cat[a.id] === "I" || S.cat[a.id] === "E") e.i++;
-      if (S.cat[a.id] === "R") e.r++;
-      per.set(k, e);
-    }
-    for (const [k, e] of per) {
-      const t = S.countryTint.get(k) || { cur: 0, target: 0, rec: 0, recT: 0 };
-      t.target = e.i / e.n; t.recT = e.r / e.n; S.countryTint.set(k, t);
-    }
     return counts;
   }
 
@@ -1058,18 +1030,6 @@
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     g.clearRect(0, 0, W, H);
     const k = T.k, mk = Math.min(2.2, Math.sqrt(k));
-
-    // country tints
-    if (S.countryTint.size) {
-      g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
-      const path = d3.geoPath(proj, g);
-      for (const [c, t] of S.countryTint) {
-        t.cur += (t.target - t.cur) * 0.04; t.rec += (t.recT - t.rec) * 0.04;
-        if (t.cur > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(255, 24, 24, ${0.2 + t.cur * 0.4})`; g.fill(); }
-        else if (t.rec > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(40, 200, 90, ${t.rec * 0.16})`; g.fill(); }
-      }
-      g.restore();
-    }
 
     // pickable countries while choosing patient zero
     if (S.picking) {
@@ -1680,14 +1640,23 @@
     });
     addEventListener("resize", () => { resize(); drawCurve(); syncCamera(); });
     // Light/dark theme (theme.js): buttons in Setup, and a re-skin on every change.
+    const effectiveTheme = () => (window.ChonkTheme ? ChonkTheme.effective() : "dark");
     const markTheme = () => {
       const pref = window.ChonkTheme ? ChonkTheme.current() : "dark";
       for (const b of document.querySelectorAll("#theme-seg button")) {
         const on = b.dataset.themePref === pref;
         b.classList.toggle("on", on); b.setAttribute("aria-checked", on);
       }
+      // Quick toggle on the map: shows the theme a click switches to.
+      const dark = effectiveTheme() === "dark", btn = $("theme-toggle");
+      if (btn) {
+        btn.textContent = dark ? "☀ Light" : "☾ Dark";
+        btn.title = `Switch to ${dark ? "light" : "dark"} mode`;
+        btn.setAttribute("aria-label", btn.title);
+      }
     };
     for (const b of document.querySelectorAll("#theme-seg button")) b.onclick = () => window.ChonkTheme && ChonkTheme.set(b.dataset.themePref);
+    $("theme-toggle").onclick = () => window.ChonkTheme && ChonkTheme.set(effectiveTheme() === "dark" ? "light" : "dark");
     addEventListener("chonkvid-theme", () => { markTheme(); readTheme(); drawBase(); drawCurve(); });
     markTheme();
   }
@@ -1707,7 +1676,7 @@
     const topo = await (await fetch("/static/world/vendor/countries-110m.json")).json();
     const all = topojson.feature(topo, topo.objects.countries).features.filter((f) => f.properties.name !== "Antarctica");
     S.countries = all;
-    for (const c of all) { c.fill = landColor(c); c.centroid = d3.geoCentroid(c); }
+    for (const c of all) c.centroid = d3.geoCentroid(c);
     S.land = { type: "FeatureCollection", features: all };
     S.borders = topojson.mesh(topo, topo.objects.countries, (a, b) => a !== b);
     resize();

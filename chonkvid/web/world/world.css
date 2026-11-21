@@ -44,6 +44,7 @@
   --map-ocean-1: #0b3c5a;
   --map-ocean-2: #0d4a6b;
   --map-ocean-3: #082b44;
+  --map-land: #55625b;
   --map-grat: rgba(160, 220, 255, 0.06);
   --map-coast-glow: rgba(140, 220, 255, 0.35);
   --map-coast: rgba(255, 255, 255, 0.22);
@@ -410,7 +411,7 @@ body.picking #fx { cursor: crosshair; }
   --badge-a: #d9e9f5; --badge-b: #c3dbee; --btn-hover: #e2eef7;
   --curve-bg: #f6f9fb; --toast-info: #e6f3fa; --well: rgba(16, 40, 60, .05);
   --tint-1: rgba(16, 40, 60, .035); --tint-2: rgba(16, 40, 60, .055); --tint-3: rgba(16, 40, 60, .08);
-  --map-ocean-1: #bcdcee; --map-ocean-2: #a9d1e8; --map-ocean-3: #93c3df;
+  --map-ocean-1: #bcdcee; --map-ocean-2: #a9d1e8; --map-ocean-3: #93c3df; --map-land: #e4e0d5;
   --map-grat: rgba(20, 80, 120, 0.08); --map-coast-glow: rgba(255, 255, 255, 0.7);
   --map-coast: rgba(40, 70, 90, 0.35); --map-border: rgba(40, 55, 35, 0.4);
   --map-shadow: rgba(30, 70, 100, 0.35); --map-route: rgba(20, 50, 80, 0.28);
@@ -429,7 +430,7 @@ body.picking #fx { cursor: crosshair; }
   --badge-a: #d9e9f5; --badge-b: #c3dbee; --btn-hover: #e2eef7;
   --curve-bg: #f6f9fb; --toast-info: #e6f3fa; --well: rgba(16, 40, 60, .05);
   --tint-1: rgba(16, 40, 60, .035); --tint-2: rgba(16, 40, 60, .055); --tint-3: rgba(16, 40, 60, .08);
-  --map-ocean-1: #bcdcee; --map-ocean-2: #a9d1e8; --map-ocean-3: #93c3df;
+  --map-ocean-1: #bcdcee; --map-ocean-2: #a9d1e8; --map-ocean-3: #93c3df; --map-land: #e4e0d5;
   --map-grat: rgba(20, 80, 120, 0.08); --map-coast-glow: rgba(255, 255, 255, 0.7);
   --map-coast: rgba(40, 70, 90, 0.35); --map-border: rgba(40, 55, 35, 0.4);
   --map-shadow: rgba(30, 70, 100, 0.35); --map-route: rgba(20, 50, 80, 0.28);
