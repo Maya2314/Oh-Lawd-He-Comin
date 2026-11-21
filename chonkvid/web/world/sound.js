@@ -22,6 +22,9 @@ window.SoundPhysics = (function () {
   let cam = null;                 // {k, x, y, W, H, project}
   let model = [];                 // [{key, lonA, latA, lonB, latB, audioA, audioB}]
   let vol = 0.85, solo = null;
+  let blocked = null;              // why the context will not run, if it will not
+  let unlockBound = false;         // pointer/key listener that retries resume() after a tap
+  let lastError = null;
   const nodes = new Map();        // key -> {gain, lp, panA, panB, gainA, gainB, bufA, bufB, timer, playing}
   const buffers = new Map();      // url -> AudioBuffer
 
@@ -56,6 +59,13 @@ window.SoundPhysics = (function () {
     master = ctx.createGain(); master.gain.value = vol;
     comp.connect(master); master.connect(ctx.destination);
     makeBed();
+    // the context can start suspended and refuse to run if the browser does not count the
+    // click as a gesture; without this we would schedule sources into a frozen timeline,
+    // mark them "playing", draw speech bubbles, and play nothing at all
+    ctx.onstatechange = () => {
+      if (ctx.state === "running") { blocked = null; if (on) pump(); }
+      else if (ctx.state === "suspended" && on) blocked = "suspended";
+    };
     return ctx;
   }
 
@@ -109,6 +119,14 @@ window.SoundPhysics = (function () {
   function schedule(key) {
     const e = nodes.get(key);
     if (!e || !e.bufA || !e.bufB || !on) return;
+    if (ctx.state !== "running") {
+      // do not start into a stopped clock: nothing would be heard while the UI said it was
+      blocked = ctx.state;
+      if (ctx.state === "suspended") { ctx.resume().catch(() => {}); }
+      e.playing = false;
+      e.timer = setTimeout(() => schedule(key), 400);
+      return;
+    }
     const t0 = ctx.currentTime + 0.06;
     const a = ctx.createBufferSource(), b = ctx.createBufferSource();
     a.buffer = e.bufA; b.buffer = e.bufB;
@@ -272,6 +290,18 @@ window.SoundPhysics = (function () {
       // a slow tick so clips that finish decoding after the last camera move still start,
       // and so links leaving earshot get silenced without needing a zoom event
       if (!tick) tick = setInterval(pump, 400);
+      // Safari (and Chrome after a blocked start) will only resume inside a gesture, and the
+      // first gesture can be spent on the overlay: retry on any later tap while sound is on
+      if (!unlockBound) {
+        unlockBound = true;
+        const unlock = () => {
+          if (on && ctx && ctx.state !== "running") {
+            ctx.resume().then(() => { if (on) pump(); }).catch(() => {});
+          }
+        };
+        document.addEventListener("pointerdown", unlock, { passive: true });
+        document.addEventListener("keydown", unlock);
+      }
       return true;
     },
     disable() {
@@ -340,12 +370,46 @@ window.SoundPhysics = (function () {
       }
       return out;
     },
+    // Is the problem the graph or the device? This plays a 1 s tone straight through the
+    // master gain, so if nothing is heard, it is not the chatter clips.
+    async probe() {
+      if (!ensure()) return { ok: false, why: "no Web Audio in this browser" };
+      try { await ctx.resume(); } catch (e) { lastError = String(e); }
+      if (ctx.state !== "running") return { ok: false, why: "context is " + ctx.state, state: ctx.state };
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sine"; o.frequency.value = 660;
+      g.gain.value = 0.25;
+      o.connect(g); g.connect(ctx.destination);
+      o.start();
+      o.stop(ctx.currentTime + 1.0);
+      return { ok: true, state: ctx.state, sampleRate: ctx.sampleRate, out: "1 s of 660 Hz" };
+    },
+    diagnose() {
+      const d = {
+        ctx: ctx ? ctx.state : "none",
+        blocked, lastError,
+        master: master ? master.gain.value : null,
+        volume: vol,
+        sampleRate: ctx ? ctx.sampleRate : null,
+        model: model.length, clipsDecoded: buffers.size,
+        voices: [...nodes.values()].filter((e) => e.playing).map((e) => ({
+          key: e.key, gain: +e.gain.gain.value.toFixed(3),
+          cutoff: Math.round(e.lp.frequency.value),
+          sources: e.sources.length,
+          clipA: e.bufA ? +e.bufA.duration.toFixed(1) : null,
+          clipB: e.bufB ? +e.bufB.duration.toFixed(1) : null,
+        })),
+        output: ctx ? ctx.state === "running" ? "graph runs; if still silent, check the OS/browser output" : "context NOT running: click the Sound pill again" : "no context",
+      };
+      console.log("[sound]", d);
+      return d;
+    },
     stats() {
       const view = compute();
       const nearest = view.slice(0, 4).map((v) => ({ key: v.key, d: Math.round(v.d), g: +v.g.toFixed(3) }));
       return {
         on, zoom: cam ? cam.k : null, solo,
-        ctx: ctx ? ctx.state : "none",
+        ctx: ctx ? ctx.state : "none", blocked,
         model: model.length, loaded: buffers.size,
         audible: view.filter((v) => v.g > GATE).slice(0, MAX_VOICES)
           .map((v) => ({ key: v.key, g: +v.g.toFixed(3), d: Math.round(v.d) })),

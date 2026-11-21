@@ -1723,6 +1723,13 @@
         }
         const ok = await window.SoundPhysics.enable();
         paintSound(!!ok);
+        // if the browser refused to start audio, say so rather than showing bubbles over silence
+        const st = window.SoundPhysics.stats();
+        if (ok && st.ctx !== "running") {
+          sndBtn.textContent = "🔊 Tap to start audio";
+          sndBtn.title = "The browser has not started audio yet (" + st.ctx + "). Click again.";
+          console.warn("[sound] context is " + st.ctx + " after the toggle; a second click usually starts it");
+        }
         if (ok) { loadChatter(); syncCamera(); drawBase(); }
       };
     }
