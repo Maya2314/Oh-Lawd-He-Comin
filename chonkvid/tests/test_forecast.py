@@ -73,6 +73,14 @@ def test_model_label_hides_local_path(monkeypatch):
     assert ev["model"] == "Timestral-209M"
 
 
+def test_model_label_any_path_style(monkeypatch):
+    # Must not depend on the OS running the tests (CI is Linux, the demo laptop Windows).
+    for raw in (r"C:\models\Timestral-123M", "/home/ci/models/Timestral-123M/",
+                "mistralai/Timestral-123M", "Timestral-123M"):
+        monkeypatch.setenv("TIMESTRAL_MODEL", raw)
+        assert forecast.model_label() == "Timestral-123M", raw
+
+
 def test_score_perfect_persistence():
     hist = _hist([39, 37, 33, 33, 33, 33], [1, 3, 7, 7, 7, 7])
     fc = forecast.predict(hist[:3], 40, 3, FakeForecaster())
