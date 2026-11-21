@@ -392,7 +392,8 @@
       const edges = (idx.edges || []).map((e) => {
         const a = S.byId.get(e.s), b = S.byId.get(e.t);
         if (!a || !b) return null;
-        return { key: e.key, lonA: a.lon, latA: a.lat, lonB: b.lon, latB: b.lat, audio: e.audio };
+        return { key: e.key, lonA: a.lon, latA: a.lat, lonB: b.lon, latB: b.lat, audio: e.audio,
+                 lines: e.lines, lang: e.lang };
       }).filter(Boolean);
       window.SoundPhysics.setWorld(edges);
       syncCamera();
@@ -1838,7 +1839,9 @@
       sndBtn.textContent = live ? "🔊 Sound on" : "🔇 Sound off";
       sndBtn.title = live
         ? "Click a contact link to solo that conversation, again to release. Click here to mute."
-        : "Turn the world's chatter on (Voxtral)";
+        : (window.SoundPhysics && window.SoundPhysics.speech
+          ? "Turn the world's chatter on (your browser's voices; Voxtral needs a Mistral key)"
+          : "Turn the world's chatter on (Voxtral)");
       sndBtn.setAttribute("aria-pressed", live ? "true" : "false");
     };
     if (sndBtn && window.SoundPhysics) {
@@ -1952,6 +1955,8 @@
       m.textContent = S.status.mode === "live" ? "LIVE" : "MOCK";
       m.className = "mode " + S.status.mode;
       m.title = S.status.mode === "live" ? `Live on ${S.status.models.agent}` : "Mock mode: a scripted stand-in model. Add MISTRAL_API_KEY for live runs.";
+      // no Voxtral in mock mode: let the browser's voices speak the conversations
+      if (window.SoundPhysics && window.SoundPhysics.setSpeech) window.SoundPhysics.setSpeech(S.status.mode !== "live");
       $("shared-auth").hidden = !S.status.database;
       $("access-token").onchange = () => loadRisk();
     } catch (e) { $("mode").textContent = "OFFLINE"; }

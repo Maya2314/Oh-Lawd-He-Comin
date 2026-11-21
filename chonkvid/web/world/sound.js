@@ -25,6 +25,44 @@ window.SoundPhysics = (function () {
   let blocked = null;              // why the context will not run, if it will not
   let unlockBound = false;         // pointer/key listener that retries resume() after a tap
   let lastError = null;
+
+  // Speech mode. Without Voxtral (MOCK), the server's clips are only a word-less babble, so
+  // the browser's own speech voices read the real lines of the nearest conversation, in its
+  // office's language, louder the closer it is. One conversation at a time: speechSynthesis
+  // is a single queue and cannot be panned or mixed.
+  let speech = false, speaking = null, speechNext = 0;
+  const LANG_TAG = { en: "en-GB", fr: "fr-FR", de: "de-DE", es: "es-ES", pt: "pt-PT" };
+  function voiceFor(lang) {
+    const vs = window.speechSynthesis ? speechSynthesis.getVoices() : [];
+    const tag = (LANG_TAG[lang] || lang || "en").toLowerCase();
+    return vs.find((v) => v.lang.toLowerCase() === tag)
+      || vs.find((v) => v.lang.toLowerCase().startsWith((lang || "en").toLowerCase())) || null;
+  }
+  function sayPair(key, g) {
+    const m = model.find((x) => x.key === key);
+    if (!m || !m.lineA) return;
+    speaking = { key };
+    const loud = Math.max(0.2, Math.min(1, g * 1.15)) * vol;
+    const utter = (text, pitch) => {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = LANG_TAG[m.lang] || m.lang || "en-GB";
+      const v = voiceFor(m.lang); if (v) u.voice = v;
+      u.volume = loud; u.rate = 1.02; u.pitch = pitch;   // two speakers, two pitches
+      return u;
+    };
+    const a = utter(m.lineA, 1.12);
+    const last = m.lineB ? utter(m.lineB, 0.86) : a;
+    last.onend = last.onerror = () => {
+      if (speaking && speaking.key === key) { speaking = null; speechNext = performance.now() + 700; pump(); }
+    };
+    speechSynthesis.speak(a);
+    if (last !== a) speechSynthesis.speak(last);
+  }
+  function stopSpeech() {
+    if (window.speechSynthesis) speechSynthesis.cancel();
+    speaking = null;
+  }
+
   const nodes = new Map();        // key -> {gain, lp, panA, panB, gainA, gainB, bufA, bufB, timer, playing}
   const buffers = new Map();      // url -> AudioBuffer
 
@@ -238,6 +276,17 @@ window.SoundPhysics = (function () {
     const keep = new Set(audible.map((v) => v.key));
     if (solo && !keep.has(solo)) keep.add(solo);
 
+    if (speech) {
+      // no babble clips: the nearest (or soloed) conversation is read aloud instead
+      for (const key of nodes.keys()) killEdge(key);
+      const target = solo || (audible[0] && audible[0].key) || null;
+      const tg = solo ? 1 : (audible[0] ? audible[0].g : 0);
+      if (speaking && (solo ? speaking.key !== solo : !keep.has(speaking.key))) stopSpeech();
+      if (!speaking && target && performance.now() >= speechNext && !speechSynthesis.speaking) sayPair(target, tg);
+      bedGain.gain.setTargetAtTime(0.012 * (1 - tg), ctx.currentTime, 0.25);   // barely-there room tone
+      return;
+    }
+
     // duck everything except a soloed link; mute everything out of earshot
     for (const [key, e] of nodes) {
       const v = byKey.get(key);
@@ -306,6 +355,7 @@ window.SoundPhysics = (function () {
     },
     disable() {
       on = false;
+      stopSpeech();
       if (tick) { clearInterval(tick); tick = 0; }
       for (const key of nodes.keys()) killEdge(key);
       if (bedGain) {
@@ -319,7 +369,9 @@ window.SoundPhysics = (function () {
       model = (edges || []).map((e) => ({
         key: e.key, lonA: e.lonA, latA: e.latA, lonB: e.lonB, latB: e.latB,
         audioA: e.audio && e.audio.a, audioB: e.audio && e.audio.b,
+        lineA: e.lines && e.lines.a, lineB: e.lines && e.lines.b, lang: e.lang || "en",
       }));
+      stopSpeech();
       solo = null;
       for (const k of nodes.keys()) stopEdge(k);
     },
@@ -339,6 +391,8 @@ window.SoundPhysics = (function () {
     },
     solo(key) {
       if (!key) return;
+      if (speech) stopSpeech();       // the clicked conversation speaks next, straight away
+      speechNext = 0;
       solo = key;
       const m = model.find((x) => x.key === key);
       if (m) startEdge(key, m);
@@ -357,10 +411,21 @@ window.SoundPhysics = (function () {
       return out;
     },
     // what is audible right now, with screen positions, for the speech bubbles
+    // MOCK mode has no Voxtral clips: read the real lines with the browser's voices instead
+    setSpeech(v) {
+      speech = !!v && !!window.speechSynthesis;
+      if (!speech) stopSpeech();
+      pump();
+    },
+    get speech() { return speech; },
     active() {
       if (!cam) return [];
       const view = new Map(compute().map((v) => [v.key, v]));
       const out = [];
+      if (speech && speaking) {
+        const v = view.get(speaking.key);
+        if (v) out.push({ key: v.key, x1: v.x1, y1: v.y1, x2: v.x2, y2: v.y2, g: Math.max(0.3, v.g), solo: solo === v.key });
+      }
       for (const [key, e] of nodes) {
         if (!e.playing && !e.sources.length) continue;
         const v = view.get(key);
