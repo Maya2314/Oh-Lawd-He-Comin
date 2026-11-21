@@ -171,9 +171,6 @@ body.picking #fx { cursor: crosshair; }
 .disease .btn { width: 100%; }
 
 .worldp { border-top: 2px solid var(--cyan); }
-.mini-curve { width: 100%; height: 92px; display: block; margin: 0 0 8px; cursor: pointer;
-  background: #050d15; border: 1px solid var(--edge); border-radius: 4px; }
-.mini-curve:hover, .mini-curve:focus-visible { border-color: var(--edge-hi); outline: none; }
 .stack { display: flex; height: 14px; border-radius: 3px; overflow: hidden; background: #050b11; border: 1px solid #000; }
 .stack span { height: 100%; transition: flex-grow .6s ease; min-width: 0; }
 .legend { list-style: none; margin: 9px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 12px; }
@@ -289,10 +286,6 @@ body.picking #fx { cursor: crosshair; }
 .end-stats .v { font-family: var(--font-hud); font-weight: 700; font-size: 28px; }
 .end-stats .k { font-size: 12px; color: var(--muted); }
 .end-note { color: var(--muted); font-size: 13.5px; line-height: 1.45; margin: 14px 0 0; }
-.end-forecast { color: var(--ink); font-size: 14px; line-height: 1.45; margin: 14px 0 0; text-align: left;
-  padding: 8px 12px; border-left: 3px solid var(--c-inf); background: rgba(255,42,42,.06); border-radius: 0 6px 6px 0; }
-.end-forecast b { font-family: var(--font-hud); font-size: 16px; }
-.end-forecast small { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
 .end-card .intro-actions { justify-content: center; }
 
 .agent-card { position: fixed; z-index: 35; width: 300px; border-radius: 8px; padding: 12px; font-size: 13px; }
@@ -337,7 +330,6 @@ body.picking #fx { cursor: crosshair; }
   .panel { padding: 28px 10px 10px; }
   .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .legend .num { font-size: 15px; }
-  .mini-curve { height: 60px; margin-bottom: 6px; }
   .cure-pct { font-size: 22px; }
   .dz-meta { display: none; }
   .virus-select { font-size: 15px; }
