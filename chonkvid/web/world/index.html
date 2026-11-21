@@ -7,6 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A6%A0%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<script src="/static/theme.js" data-default="dark"></script>
 <link rel="stylesheet" href="/static/world/world.css">
 </head>
 <body>
@@ -131,6 +132,13 @@
       <label class="chk"><input id="usewho" type="checkbox"> Use the WHO-written vaccine</label>
       <label id="shared-auth" hidden>Supabase access token <input id="access-token" type="password" autocomplete="off" placeholder="for the team's shared run history"></label>
     </div>
+    <h4>Appearance</h4>
+    <div class="theme-seg" id="theme-seg" role="radiogroup" aria-label="Colour theme">
+      <button role="radio" data-theme-pref="light" aria-checked="false">☀ Light</button>
+      <button role="radio" data-theme-pref="dark" aria-checked="false">☾ Dark</button>
+      <button role="radio" data-theme-pref="system" aria-checked="false">⚙ System</button>
+    </div>
+    <p class="pane-note">Applies to the map and the lab dashboard, in this browser.</p>
     <h4>Replay a recorded run</h4>
     <div class="row">
       <select id="runs"><option value="">Recorded runs…</option></select>

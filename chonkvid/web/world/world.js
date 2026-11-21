@@ -30,6 +30,20 @@
   ];
   const COLOR = Object.fromEntries(STATES.map((s) => [s.key, s.color]));
   const LABEL = Object.fromEntries(STATES.map((s) => [s.key, s.label]));
+  // Map canvas colours come from CSS tokens, so the light/dark theme re-skins the canvas too.
+  const TH = {};
+  function readTheme() {
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n) => cs.getPropertyValue(n).trim();
+    Object.assign(TH, {
+      ocean1: v("--map-ocean-1"), ocean2: v("--map-ocean-2"), ocean3: v("--map-ocean-3"),
+      grat: v("--map-grat"), coastGlow: v("--map-coast-glow"), coast: v("--map-coast"),
+      border: v("--map-border"), shadow: v("--map-shadow"), route: v("--map-route"),
+      labelBg: v("--map-label-bg"), labelInk: v("--map-label-ink"), labelHq: v("--map-label-hq"),
+      normalSpeck: v("--map-normal-speck"), muted: v("--muted"), tint3: v("--tint-3"),
+    });
+  }
+  readTheme();
   const ROUTE_RED = "255, 70, 70";
   const VENUE_CYAN = "95, 212, 255";
 
@@ -174,7 +188,7 @@
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
     // ocean
     const og = g.createLinearGradient(0, 0, 0, H);
-    og.addColorStop(0, "#0b3c5a"); og.addColorStop(0.5, "#0d4a6b"); og.addColorStop(1, "#082b44");
+    og.addColorStop(0, TH.ocean1); og.addColorStop(0.5, TH.ocean2); og.addColorStop(1, TH.ocean3);
     g.fillStyle = og; g.fillRect(0, 0, W, H);
     if (!noise) noise = makeNoise();
     g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
@@ -186,14 +200,14 @@
     const lw = 1 / T.k;
 
     // graticule
-    g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = "rgba(160,220,255,0.06)"; g.lineWidth = lw; g.stroke();
+    g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = TH.grat; g.lineWidth = lw; g.stroke();
 
     // land glow + shadow
     g.save();
-    g.shadowColor = "rgba(0, 10, 20, 0.75)"; g.shadowBlur = 18 * DPR; g.shadowOffsetY = 3 * DPR;
+    g.shadowColor = TH.shadow; g.shadowBlur = 18 * DPR; g.shadowOffsetY = 3 * DPR;
     g.beginPath(); path(S.land); g.fillStyle = "#4c6a37"; g.fill();
     g.restore();
-    g.beginPath(); path(S.land); g.strokeStyle = "rgba(140, 220, 255, 0.35)"; g.lineWidth = 3.5 * lw; g.stroke();
+    g.beginPath(); path(S.land); g.strokeStyle = TH.coastGlow; g.lineWidth = 3.5 * lw; g.stroke();
 
     for (const c of S.countries) { g.beginPath(); path(c); g.fillStyle = c.fill; g.fill(); }
 
@@ -203,13 +217,13 @@
     g.globalAlpha = 0.9; g.fillStyle = g.createPattern(noise, "repeat"); g.fillRect(0, 0, W, H);
     g.restore();
 
-    g.beginPath(); path(S.borders); g.strokeStyle = "rgba(25, 35, 20, 0.55)"; g.lineWidth = 0.7 * lw; g.stroke();
-    g.beginPath(); path(S.land); g.strokeStyle = "rgba(255, 255, 255, 0.22)"; g.lineWidth = 0.8 * lw; g.stroke();
+    g.beginPath(); path(S.borders); g.strokeStyle = TH.border; g.lineWidth = 0.7 * lw; g.stroke();
+    g.beginPath(); path(S.land); g.strokeStyle = TH.coast; g.lineWidth = 0.8 * lw; g.stroke();
     g.restore();
 
     // flight routes between cities that share a contact (static, faint)
     g.save();
-    g.setLineDash([3, 5]); g.lineWidth = 1; g.strokeStyle = "rgba(255,255,255,0.13)";
+    g.setLineDash([3, 5]); g.lineWidth = 1; g.strokeStyle = TH.route;
     for (const r of S.routes) {
       const a = [sx(r.a.p), sy(r.a.p)], b = [sx(r.b.p), sy(r.b.p)], c = ctrl(a, b);
       g.beginPath(); g.moveTo(a[0], a[1]); g.quadraticCurveTo(c[0], c[1], b[0], b[1]); g.stroke();
@@ -236,9 +250,9 @@
       if (!free) continue;
       const [lx, ly] = free;
       placed.push([lx, ly, w]);
-      g.fillStyle = "rgba(8,18,28,0.78)";
+      g.fillStyle = TH.labelBg;
       g.beginPath(); g.roundRect(lx - w / 2, ly - 17, w, 18, 4); g.fill();
-      g.fillStyle = c.tag ? "#ffb070" : "rgba(235,245,255,0.92)";
+      g.fillStyle = c.tag ? TH.labelHq : TH.labelInk;
       g.fillText(label, lx, ly);
     }
     g.restore();
@@ -655,7 +669,7 @@
     const days = Math.max(+$("ticks").value || 12, S.history.length ? S.history[S.history.length - 1].tick : 0);
     const X = (t) => pad.l + ((w - pad.l - pad.r) * t) / Math.max(1, days);
     const Y = (v) => h - pad.b - ((h - pad.t - pad.b) * v) / n;
-    g.font = "11px Inter, sans-serif"; g.fillStyle = "#8aa4b8"; g.strokeStyle = "rgba(255,255,255,.07)";
+    g.font = "11px Inter, sans-serif"; g.fillStyle = TH.muted; g.strokeStyle = TH.tint3;
     for (let i = 0; i <= 4; i++) {
       const y = Y((n * i) / 4); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(w - pad.r, y); g.stroke();
       g.fillText(Math.round((n * i) / 4), 4, y + 4);
@@ -663,7 +677,7 @@
     g.fillText("day", pad.l + 2, pad.t + 10);
     for (let t = 0; t <= days; t += Math.max(1, Math.round(days / 6))) g.fillText(t, X(t) - 3, h - 5);
     if (!S.history.length) {
-      g.fillStyle = "#5d7486"; g.font = "13px Inter, sans-serif"; g.fillText("The outbreak curve draws here during a run.", pad.l + 10, h / 2);
+      g.fillStyle = TH.muted; g.font = "13px Inter, sans-serif"; g.fillText("The outbreak curve draws here during a run.", pad.l + 10, h / 2);
       return;
     }
     const order = ["I", "E", "S", "N", "V", "R"]; // infected at the bottom, like an epi curve
@@ -742,7 +756,7 @@
       for (const q of a.specks) {
         const c = since > q.delay * 1500 ? cur : prev;
         const s = q.size * mk * (c === "I" ? 1.35 : 1);
-        g.fillStyle = c === "N" ? "rgba(10,12,14,0.85)" : COLOR[c];
+        g.fillStyle = c === "N" ? TH.normalSpeck : COLOR[c];
         g.fillRect(sx(q.p) - s / 2, sy(q.p) - s / 2, s, s);
       }
     }
@@ -1131,6 +1145,17 @@
       }
     });
     addEventListener("resize", () => { resize(); drawCurve(); });
+    // Light/dark theme (theme.js): buttons in Setup, and a re-skin on every change.
+    const markTheme = () => {
+      const pref = window.ChonkTheme ? ChonkTheme.current() : "dark";
+      for (const b of document.querySelectorAll("#theme-seg button")) {
+        const on = b.dataset.themePref === pref;
+        b.classList.toggle("on", on); b.setAttribute("aria-checked", on);
+      }
+    };
+    for (const b of document.querySelectorAll("#theme-seg button")) b.onclick = () => window.ChonkTheme && ChonkTheme.set(b.dataset.themePref);
+    addEventListener("chonkvid-theme", () => { markTheme(); readTheme(); drawBase(); drawCurve(); });
+    markTheme();
   }
 
   async function loadWorld() {

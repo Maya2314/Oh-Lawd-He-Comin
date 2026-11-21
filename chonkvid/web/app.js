@@ -378,6 +378,13 @@ async function init() {
   $("byo-run").onclick = runPromptTest; $("byo-epi").onclick = runPromptEpidemic;
   for (const id of ["n", "seed"]) $(id).onchange = async () => drawWorld(await (await fetch(`/api/world?n=${$("n").value}&seed=${$("seed").value}`)).json());
   matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { C = COLORS(); });
+  // Light/dark switch (theme.js): System -> Light -> Dark, shared with the world map.
+  const NEXT = { system: "light", light: "dark", dark: "system" };
+  const NAME = { system: "System", light: "Light", dark: "Dark" };
+  const showTheme = () => { if (window.ChonkTheme && $("theme-label")) $("theme-label").textContent = NAME[ChonkTheme.current()] || "System"; };
+  if ($("theme-toggle")) $("theme-toggle").onclick = () => window.ChonkTheme && ChonkTheme.set(NEXT[ChonkTheme.current()] || "light");
+  addEventListener("chonkvid-theme", () => { C = COLORS(); showTheme(); });
+  showTheme();
 }
 // ---------------------------------------------------------------- shell chrome
 // #err is a toast: click to dismiss, auto-hides 7s after it was last shown.
