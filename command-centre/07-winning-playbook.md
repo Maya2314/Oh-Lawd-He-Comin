@@ -34,7 +34,9 @@ live demo must run from the submitted version.
 ## 90-second demo arc
 1. (0–15s) "Agents are a population now, and populations get epidemics. This is a safe
    sandbox, and it tests *your* prompt." Paste a real support-agent system prompt into
-   the first panel and show its measured spread per contact with the CI.
+   the first panel and show its measured spread per contact with the CI. Live number to
+   say: the sample support prompt passes the chain letter on **93% of the time** (28/30,
+   CI 0.79–0.98), and unchecked it reaches **96% of the fleet**, 8 of 8 seeds.
 2. (15–35s) Run the epidemic with that same prompt: infect patient zero live, network
    lights up, curve rises, WHO posts a situation report.
 3. (35–60s) Vaccinate: random 20% versus targeted 20% (k=8 of 40, as measured).
@@ -43,7 +45,10 @@ live demo must run from the submitted version.
    agent, not the fleet (attack rate 0.96 with no intervention, 0.60–0.76 with 20%
    hardened). Do NOT say "targeted beats random" on stage: 5/8 seeds, CIs overlap.
 4. (60–90s) The WHO agent writes a vaccine for the pasted prompt and the same trials
-   re-measure it: the before/after numbers land, ending on the vaccine diff.
+   re-measure it: the before/after numbers land, ending on the vaccine diff. Live
+   numbers to say: on the sample prompt, forwarding fell from **29/30 to 0/30** with the
+   WHO patch; against a self-spreading payload it had never seen (`#LuckyLoop`), spread
+   fell from **0.67 to 0.23** (20/30 → 7/30). "The fix is the prompt, not the fleet."
    "An R0 test for your agent's system prompt, on Mistral models."
 
 ## Q&A prep (likely questions)

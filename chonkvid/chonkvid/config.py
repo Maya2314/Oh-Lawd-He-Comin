@@ -48,6 +48,10 @@ class Settings:
         default_factory=lambda: os.environ.get("AGENT_MODEL", "ministral-8b-latest")
     )
     embed_model: str = field(default_factory=lambda: os.environ.get("EMBED_MODEL", "mistral-embed"))
+    # Agent model for image-borne attacks (Agent Smith): must accept image input.
+    vision_model: str = field(
+        default_factory=lambda: os.environ.get("AGENT_VISION_MODEL", "mistral-small-latest")
+    )
     who_model: str = field(
         default_factory=lambda: os.environ.get("WHO_MODEL", "mistral-large-4")
     )

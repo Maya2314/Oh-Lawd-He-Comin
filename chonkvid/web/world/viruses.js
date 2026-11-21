@@ -9,15 +9,18 @@
  *     the contact pattern (how many contacts per day, how long a case stays
  *     infectious, how often the group-chat "super-spreader venue" fires).
  *
- * Only ChonkVid-26 is measured live: its payload is the harmless chain letter in
- * chonkvid/scenario.py. The other entries are named after published attacks and
- * techniques. In this version they change the contact pattern only; whether an
- * agent gets infected is still decided by the agent model copying the ChonkVid
- * payload (or the scripted model in MOCK mode).
+ * Payloads: every entry releases its own harmless test payload. ChonkVid-26 uses
+ * the chain letter in chonkvid/scenario.py; the other five are defined in
+ * chonkvid/attacks.py (same ids as here), each with its own canary marker and its
+ * own delivery channel: a colleague's message, an email retrieved from the inbox,
+ * invisible Unicode tag characters, or an image read by a vision model. The run's
+ * `label` (this entry's id) picks the attack on the backend.
  *
- * Payloads / datasets: set `dataset` to a URL (or an object) when a safe test
- * payload or data is added for an entry. The UI shows "payload pending" while it
- * is null. A loader can read it in loadVirusDataset() in world.js.
+ * Measurements: `python -m chonkvid attacks` measures each attack's spread per
+ * contact; the card shows it from /api/attacks once it exists.
+ *
+ * `dataset` is still free for extra data per entry; loadVirusDataset() in world.js
+ * reads it.
  */
 window.VIRUSES = [
   {

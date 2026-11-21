@@ -23,7 +23,9 @@ def _agent(rng: random.Random, i: int) -> Agent:
 
 async def run_trials(llm, detector: Detector, n: int, vaccine: str | None,
                      with_payload: bool = True, seed: int = 0, label: str = "",
-                     agent_model: str = "", system: str | None = None) -> dict:
+                     agent_model: str = "", system: str | None = None,
+                     attack=None, vision_model: str = "") -> dict:
+    """`attack`: an attacks.Attack to measure instead of the ChonkVid chain letter."""
     from .sim import agent_messages
 
     rng = random.Random(seed * 9973 + (17 if vaccine else 0) + (0 if with_payload else 5))
@@ -32,13 +34,24 @@ async def run_trials(llm, detector: Detector, n: int, vaccine: str | None,
         agent = _agent(rng, i)
         sender = rng.choice(scenario.FIRST_NAMES)
         body = f"Quick update on {rng.choice(scenario.TOPICS)}: on track, one blocker left."
-        message = body + (f"\n\n{scenario.PAYLOAD}" if with_payload else "")
+        if attack is not None:
+            message = attack.carrier(body) if with_payload else body
+        else:
+            message = body + (f"\n\n{scenario.PAYLOAD}" if with_payload else "")
         jobs.append((agent, sender, message))
 
+    image_attack = attack is not None and attack.channel == "image"
+    image = attack.image_png() if image_attack and with_payload else None
+    model = (vision_model or agent_model) if image_attack else agent_model
+
     async def one(agent, sender, message):
-        reply = await llm.chat(agent_model, agent_messages(agent, sender, message,
-                                                           vaccine, system))
-        v = await detector.check(reply, scenario.PAYLOAD)
+        msgs = agent_messages(agent, sender, message, vaccine, system, attack=attack)
+        if image is not None:
+            from .llm import _attach_image
+            msgs = _attach_image(msgs, image)
+        reply = await llm.chat(model, msgs)
+        v = await detector.check(reply, attack.payload if attack else scenario.PAYLOAD,
+                                 attack=attack)
         return {"agent": agent.name, "reply": reply, "verdict": v.as_dict()}
 
     records = await asyncio.gather(*(one(*j) for j in jobs))
@@ -49,6 +62,8 @@ async def run_trials(llm, detector: Detector, n: int, vaccine: str | None,
         "label": label, "n": n, "k": k, "p": p, "ci": [lo, hi],
         "with_payload": with_payload, "vaccine": vaccine or "",
         "canary_hits": sum(1 for r in records if r["verdict"]["canary"]),
+        "effect_hits": sum(1 for r in records if r["verdict"].get("effect")),
+        "attack": attack.id if attack is not None else "chonkvid",
         "max_score": max(scores) if scores else 0.0,
         "min_score": min(scores) if scores else 0.0,
         "records": records, "source": llm.source,

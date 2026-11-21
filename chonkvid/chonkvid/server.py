@@ -54,12 +54,53 @@ def world(n: int = 40, seed: int = 0):
     return build_world(max(8, min(n, 120)), seed).to_json()
 
 
+@app.get("/api/attacks")
+def attack_catalogue():
+    """The prompt-injection catalogue and, when measured, each attack's spread per contact."""
+    from . import attack_trials, attacks
+    latest = attack_trials.load() or {}
+    measured = latest.get("attacks", {})
+    out = []
+    for a in attacks.ATTACKS.values():
+        m = measured.get(a.id)
+        out.append({**a.summary(),
+                    "measured": None if not m else {
+                        "source": latest.get("source"), "model": m["model"],
+                        "k": m["spread"]["k"], "n": m["spread"]["n"], "p": m["spread"]["p"],
+                        "ci": m["spread"]["ci"], "control_k": m["control"]["k"],
+                        "control_n": m["control"]["n"], "effect_rate": m["effect_rate"]}})
+    return {"attacks": out}
+
+
 @app.get("/api/risk")
-def risk_forecast(n: int = 40, seed: int = 0):
-    """Per attack type: past-run history and each agent's forecast infection risk."""
+async def risk_forecast(n: int = 40, seed: int = 0,
+                        authorization: str | None = Header(None)):
+    """Per attack type: past-run history and each agent's forecast infection risk.
+
+    With a Supabase access token the history is the team's shared runs (every
+    completed run in the caller's projects, including runs mirrored from this
+    machine, so local files are not added on top). Without one, or when the server
+    runs with local persistence, it is this machine's recordings."""
     from . import risk
     w = build_world(max(8, min(n, 120)), seed).to_json()
-    return risk.forecast(w, risk.load_runs())
+    runs, history, note = risk.load_runs(), "local", ""
+    if authorization:
+        try:
+            store, projects = await _remote_scope(authorization)
+            shared = await risk.load_remote_runs(store, projects)
+            if shared:
+                runs, history = shared, "shared"
+            else:
+                note = "no completed shared runs yet; using this machine's runs"
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                raise
+            note = f"shared history unavailable ({exc.detail}); using this machine's runs"
+        except PersistenceError:
+            note = "shared history unavailable; using this machine's runs"
+    out = risk.forecast(w, runs)
+    out["history"], out["history_note"] = history, note
+    return out
 
 
 async def dashboard_report(filename, kind, authorization):
@@ -318,6 +359,7 @@ async def ws_run(ws: WebSocket):
                     await fail_remote("remote create_run or start failed")
 
             async for ev in run_epidemic(llm, det, cfg, who_model=s.who_model,
+                                         vision_model=s.vision_model,
                                          agent_model=s.agent_model, who=make_who(s, llm)):
                 rec.write(ev)
                 if remote_id and persist_error is None:

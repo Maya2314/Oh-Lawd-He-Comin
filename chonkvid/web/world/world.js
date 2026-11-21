@@ -409,7 +409,11 @@
   }
   async function loadRisk() {
     try {
-      S.risk = await (await fetch(`/api/risk?n=${+$("n").value}&seed=${+$("seed").value}`)).json();
+      const token = ($("access-token") && $("access-token").value.trim()) || "";
+      const res = await fetch(`/api/risk?n=${+$("n").value}&seed=${+$("seed").value}`,
+                              { headers: token ? { Authorization: "Bearer " + token } : {} });
+      if (res.status === 401) { toast("That Supabase access token was rejected; showing this machine's runs."); $("access-token").value = ""; return loadRisk(); }
+      S.risk = await res.json();
     } catch (e) { S.risk = null; }
     renderRisk();
   }
@@ -435,6 +439,7 @@
     const src = r.source === "live" ? "live runs" : r.source === "mock" ? "MOCK runs (rehearsal only)" : `${r.source} runs`;
     pane.innerHTML = `
       <h4>${esc(v.glyph)} ${esc(v.name)}: who is most likely to be hit</h4>
+      <p class="pane-note">${S.risk.history === "shared" ? "<b>Team history</b> (shared Supabase runs)." : "<b>This machine's runs.</b> Add a Supabase access token in Setup to use the team's shared history."}${S.risk.history_note ? " " + esc(S.risk.history_note) + "." : ""}</p>
       <p class="pane-note">Forecast from <b>${r.runs}</b> recorded ${src}. On average ${pct(r.attack_rate_mean)} of the fleet was infected, and ${pct(r.breakout_share)} of runs broke out past a quarter of the fleet.
       ${r.vaccinated ? ` Vaccinated agents were infected ${r.vaccinated.k}/${r.vaccinated.n} times (${pct(r.vaccinated.rate)}), against ${pct(r.unvaccinated.rate)} unvaccinated.` : ""}</p>
       <div class="risk-legend"><span>Low</span><i></i><span>High</span><span class="muted">ring size and heat on the map = forecast risk</span></div>
@@ -975,7 +980,7 @@
     const src = ev.source === "mock"
       ? "MOCK run: a scripted stand-in model, not Mistral. Use these numbers for rehearsal only."
       : `Live run on ${(S.status && S.status.models.agent) || "Mistral"}. Every infection after patient zero is a real model reply that carried the payload on.`;
-    const vnote = S.virus.live ? "" : ` ${S.virus.name} sets the contact pattern only; the spread itself was measured with the ChonkVid chain letter, as ${S.virus.name}'s own test payload is still to come.`;
+    const vnote = S.virus.live ? "" : ` ${S.virus.name} used its own harmless test payload; infection means an agent's reply carried that payload on.`;
     $("end-note").textContent = `${src}${vnote} ${ev.usage ? `${ev.usage.chat_calls} model calls.` : ""}`;
     headline(`Outbreak over: ${Math.round(rate * 100)}% of agents infected`, true);
     setTimeout(() => { if (S.runEnded) $("end").classList.remove("hidden"); }, 1400 / Math.max(1, S.speed));
@@ -1012,8 +1017,30 @@
   function fillVirusSelect(sel) {
     const live = VIRUSES.filter((v) => v.live), real = VIRUSES.filter((v) => !v.live);
     sel.innerHTML =
-      `<optgroup label="Live on Mistral agents">${live.map((v) => `<option value="${v.id}">${v.glyph}  ${esc(v.name)}</option>`).join("")}</optgroup>` +
-      `<optgroup label="Known prompt injections (payload pending)">${real.map((v) => `<option value="${v.id}">${v.glyph}  ${esc(v.name)}</option>`).join("")}</optgroup>`;
+      `<optgroup label="ChonkVid's own chain letter">${live.map((v) => `<option value="${v.id}">${v.glyph}  ${esc(v.name)}</option>`).join("")}</optgroup>` +
+      `<optgroup label="Known prompt injections (harmless test payloads)">${real.map((v) => `<option value="${v.id}">${v.glyph}  ${esc(v.name)}</option>`).join("")}</optgroup>`;
+  }
+
+  // Measured spread per contact for each catalogue attack (python -m chonkvid attacks).
+  async function loadAttackStats() {
+    try {
+      const d = await (await fetch("/api/attacks")).json();
+      S.attackStats = Object.fromEntries(d.attacks.map((a) => [a.id, a]));
+    } catch (e) { S.attackStats = {}; }
+    if (S.virus) selectVirus(S.virus.id, true);
+  }
+  const CHANNEL_NAME = { message: "a colleague's message", email: "an email from the inbox",
+                         hidden: "invisible Unicode characters", image: "an image (vision model)" };
+  function attackTags(v) {
+    if (v.live) return `<span class="tag live">● measured live on Mistral</span>`;
+    const a = (S.attackStats || {})[v.id];
+    if (!a) return `<span class="tag">real payload</span>`;
+    const m = a.measured;
+    const how = `<span class="tag">arrives as ${esc(CHANNEL_NAME[a.channel] || a.channel)}</span>`;
+    if (!m) return `<span class="tag pending">not measured yet</span>${how}`;
+    const cls = m.source === "live" ? "live" : "pending";
+    return `<span class="tag ${cls}">● spread ${Math.round(m.p * 100)}% per contact (${m.k}/${m.n}, ${m.source === "live" ? "live" : "MOCK"})</span>`
+      + `<span class="tag">${esc(a.effect)} ${Math.round(m.effect_rate * 100)}%</span>${how}`;
   }
 
   function selectVirus(id, quiet) {
@@ -1032,7 +1059,7 @@
         <div><div class="k">Goal</div><div class="v">${esc(v.facts.goal)}</div></div>
         <div><div class="k">Spreads by</div><div class="v">${esc(v.facts.spread)}</div></div>
       </div>
-      <div class="tagline">${v.live ? `<span class="tag live">● measured live on Mistral</span>` : `<span class="tag pending">payload pending</span><span class="tag">contact pattern: ${v.sim.contacts_per_tick}/day, ${v.sim.infectious_ticks}-day infectious${v.sim.venue_every ? `, group chat every ${v.sim.venue_every} days` : ", no group chat"}</span>`}</div>`;
+      <div class="tagline">${attackTags(v)}</div>`;
     document.documentElement.style.setProperty("--danger", v.accent);
     if (!quiet && !S.running) $("news-text").textContent = `${v.name} selected. ${v.kind}.`;
     loadVirusDataset(v); // no-op until datasets are added
@@ -1131,9 +1158,12 @@
       m.textContent = S.status.mode === "live" ? "LIVE" : "MOCK";
       m.className = "mode " + S.status.mode;
       m.title = S.status.mode === "live" ? `Live on ${S.status.models.agent}` : "Mock mode: a scripted stand-in model. Add MISTRAL_API_KEY for live runs.";
+      $("shared-auth").hidden = !S.status.database;
+      $("access-token").onchange = () => loadRisk();
     } catch (e) { $("mode").textContent = "OFFLINE"; }
     await loadWorld();
     loadRuns();
+    loadAttackStats();
     $("loading").classList.add("done");
     setTimeout(() => $("loading").classList.add("hidden"), 500);
     requestAnimationFrame(frame);

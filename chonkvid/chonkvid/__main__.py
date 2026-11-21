@@ -193,6 +193,22 @@ async def cmd_test_prompt(args) -> int:
     return 0
 
 
+async def cmd_attacks(args) -> int:
+    """One-hop spread trials for every catalogue prompt injection, with a control arm."""
+    from .attack_trials import measure_attacks, save, table
+    s = settings()
+    system = Path(args.system_file).read_text() if args.system_file else None
+    llm = make_llm(s)
+    try:
+        out = await measure_attacks(llm, s, n=args.n, ids=args.only or None, system=system)
+    finally:
+        await llm.aclose()
+    save(out)
+    print(table(out))
+    print("saved results/attacks-latest.json (served at /api/attacks)")
+    return 0
+
+
 async def cmd_voice_trial(args) -> int:
     """Voxtral voice hop: text vs voice one-hop spread on the same prompt."""
     import json
@@ -262,6 +278,10 @@ def main(argv=None) -> int:
     vt.add_argument("-n", type=int, default=20)
     vt.add_argument("--system-file", help="system prompt to test (default: sample support prompt)")
     sub.add_parser("mcp", help="run the ChonkVid MCP server on stdio (for Mistral Vibe)")
+    at = sub.add_parser("attacks", help="measure spread per contact for every catalogue attack")
+    at.add_argument("-n", type=int, default=20)
+    at.add_argument("--only", nargs="*", help="attack ids (default: all)")
+    at.add_argument("--system-file", help="measure against this system prompt instead")
     args = p.parse_args(argv)
     if args.cmd == "mcp":
         from .mcp_server import main as mcp_main
@@ -286,7 +306,8 @@ def main(argv=None) -> int:
     if args.cmd == "db-check":
         return cmd_db_check(args)
     fn = {"check": cmd_check, "probe": cmd_probe, "experiment": cmd_experiment,
-          "test-prompt": cmd_test_prompt, "voice-trial": cmd_voice_trial}[args.cmd]
+          "test-prompt": cmd_test_prompt, "voice-trial": cmd_voice_trial,
+          "attacks": cmd_attacks}[args.cmd]
     return asyncio.run(fn(args))
 
 

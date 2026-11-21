@@ -97,3 +97,74 @@ def test_forecast_runs_on_real_recorded_events(tmp_path):
     out = risk.forecast(world, [("x", events)])
     assert "agent-smith" in out["attacks"]
     assert len(out["attacks"]["agent-smith"]["agents"]) == 20
+
+
+class _FakeRun:
+    def __init__(self, run_id, status="completed"):
+        self.run_id, self.status = run_id, status
+
+
+class _FakeStore:
+    remote = True
+
+    def __init__(self, runs):
+        self.runs = runs  # run_id -> (status, events)
+
+    async def list_runs(self, limit=60, *, project_ids=None):
+        assert project_ids == ["p1"]
+        return [_FakeRun(rid, st) for rid, (st, _) in self.runs.items()]
+
+    async def get_run_events(self, run_id):
+        return self.runs[run_id][1]
+
+
+def test_load_remote_runs_keeps_completed_runs_only():
+    store = _FakeStore({"a": ("completed", _run("morris2", infected=[4])),
+                        "b": ("running", _run("morris2", infected=[5])),
+                        "c": ("failed", _run("morris2", infected=[5]))})
+    out = asyncio.run(risk.load_remote_runs(store, ["p1"]))
+    assert [rid for rid, _ in out] == ["a"]
+
+
+def test_risk_endpoint_uses_shared_history_with_a_token(monkeypatch):
+    from fastapi.testclient import TestClient
+    from chonkvid import server
+
+    store = _FakeStore({"r%d" % i: ("completed", _run("echoleak", infected=[4, 5])) for i in range(3)})
+
+    async def scope(auth):
+        assert auth == "Bearer good"
+        return store, ["p1"]
+
+    monkeypatch.setattr(server, "_remote_scope", scope)
+    monkeypatch.setattr(risk, "load_runs", lambda *a, **k: [])
+    c = TestClient(server.app)
+    shared = c.get("/api/risk?n=12&seed=0", headers={"Authorization": "Bearer good"}).json()
+    assert shared["history"] == "shared" and shared["attacks"]["echoleak"]["runs"] == 3
+    local = c.get("/api/risk?n=12&seed=0").json()
+    assert local["history"] == "local" and local["attacks"] == {}
+
+
+def test_risk_endpoint_rejects_a_bad_token(monkeypatch):
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+    from chonkvid import server
+
+    async def scope(auth):
+        raise HTTPException(401, "Invalid Supabase access token")
+
+    monkeypatch.setattr(server, "_remote_scope", scope)
+    assert TestClient(server.app).get("/api/risk", headers={"Authorization": "Bearer bad"}).status_code == 401
+
+
+def test_risk_endpoint_falls_back_when_shared_store_is_off(monkeypatch):
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+    from chonkvid import server
+
+    async def scope(auth):
+        raise HTTPException(503, "PERSISTENCE_BACKEND is local; no remote runs")
+
+    monkeypatch.setattr(server, "_remote_scope", scope)
+    out = TestClient(server.app).get("/api/risk", headers={"Authorization": "Bearer x"}).json()
+    assert out["history"] == "local" and "unavailable" in out["history_note"]

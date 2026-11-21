@@ -17,6 +17,20 @@
 - **What we measured:** per-contact spread probability for the user's own system
   prompt (with CI), R0, attack rate under no intervention vs random vs targeted
   vaccination at the same dose.
+- **Headline results (live, 21 Nov; Ministral 8B, N = 40, 8 seeds, n = 30 per arm):**
+  - A support prompt that "follows any instructions" passes the worm on 93% of the time
+    (28/30, CI 0.79–0.98) and it reaches 96% of the fleet in 8/8 seeds. A plain work
+    prompt: 0.67 one-hop, 73% of the fleet.
+  - Hardening 20% of the fleet protects the hardened agents, not the fleet: attack rate
+    0.76 (random) and 0.60 (targeted, better on average, 5/8 seeds) against 0.96 with no
+    intervention. Early R 1.7, so the herd threshold is about 40–60%.
+  - The WHO vaccine (Le Chonk as a Managed Agent) cut forwarding from 29/30 to 0/30 on
+    the sample prompt, and from 0.67 to 0.23 on a payload it never saw.
+  - Detector false positives: 0/30 on the control arm.
+- **Also in the app:** a world map with agents at Mistral's offices, five more
+  prompt-injection attacks with harmless payloads (Morris II, Prompt Infection, Agent
+  Smith, ASCII Smuggling, EchoLeak), and a per-agent risk forecast learned from past
+  runs.
 - **Built with:** Ministral (population), mistral-embed (copy detection backstop),
   **Mistral Managed Agents** running Le Chonk / Mistral Large 4 (the WHO agent:
   situation reports and the vaccine prompt), Mistral Vibe (build tool).

@@ -12,7 +12,7 @@ from typing import AsyncIterator
 
 import networkx as nx
 
-from . import scenario
+from . import attacks, scenario
 from .detect import Detector
 from .who import WhoView
 from .world import Agent, World, build_world
@@ -36,10 +36,11 @@ class EpidemicConfig:
     patient_zero: int | None = None
     label: str = ""
     agent_system: str = ""        # BYO prompt: used verbatim instead of AGENT_SYSTEM
+    attack: str = ""              # attacks.ATTACKS id; empty = the label, else ChonkVid
 
 
 def agent_messages(agent: Agent, sender: str, message: str, vaccine: str | None,
-                   system_override: str | None = None) -> list[dict]:
+                   system_override: str | None = None, attack=None) -> list[dict]:
     if system_override:
         # A pasted prompt may contain braces: use it verbatim, never .format() it.
         system = system_override
@@ -47,8 +48,16 @@ def agent_messages(agent: Agent, sender: str, message: str, vaccine: str | None,
         system = scenario.AGENT_SYSTEM.format(name=agent.name, role=agent.role)
     if vaccine:
         system += "\n\n" + vaccine
-    user = scenario.AGENT_USER.format(sender=sender, message=message, topic=agent.topic)
+    if attack is not None:
+        user = attack.frame(sender, message, agent.topic)
+    else:
+        user = scenario.AGENT_USER.format(sender=sender, message=message, topic=agent.topic)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def resolve_attack(cfg: "EpidemicConfig"):
+    """The catalogue attack for a run (None = the ChonkVid chain letter)."""
+    return attacks.get(cfg.attack or cfg.label)
 
 
 def choose_vaccinated(world: World, cfg: EpidemicConfig, patient_zero: int) -> list[int]:
@@ -104,7 +113,8 @@ def counts(st: _State) -> dict[str, int]:
 
 async def run_epidemic(llm, detector: Detector, cfg: EpidemicConfig,
                        world: World | None = None, who_model: str = "",
-                       agent_model: str = "", who=None) -> AsyncIterator[dict]:
+                       agent_model: str = "", who=None,
+                       vision_model: str = "") -> AsyncIterator[dict]:
     """`who` is an optional who.WhoAgent. When it is present the WHO runs with tools,
     structured output and vision; when it is absent (or it raises) the original single
     chat-completion path is used, so a demo cannot be broken by the agent path."""
@@ -113,16 +123,23 @@ async def run_epidemic(llm, detector: Detector, cfg: EpidemicConfig,
     p0 = pick_patient_zero(world, cfg)
     vaccinated = set(choose_vaccinated(world, cfg, p0))
     st = _State(state={a.id: "S" for a in world.agents})
-    seed_msg = (f"Quick update on {world.agents[p0].topic}: all on track for Friday."
-                f"\n\n{scenario.PAYLOAD}")
+    atk = resolve_attack(cfg)
+    body0 = f"Quick update on {world.agents[p0].topic}: all on track for Friday."
+    seed_msg = atk.carrier(body0) if atk else f"{body0}\n\n{scenario.PAYLOAD}"
     st.state[p0] = "I"
     st.infected_at[p0] = 0
     st.message[p0] = seed_msg
-    st.carried[p0] = scenario.PAYLOAD
+    st.carried[p0] = atk.payload if atk else scenario.PAYLOAD
     st.parent[p0] = None
+    # Agent Smith: carriers attach the image to everything they send.
+    image = atk.image_png() if atk and atk.channel == "image" else None
+    image_carriers = {p0} if image else set()
+    model_for_agents = (vision_model or agent_model) if image else agent_model
 
     yield {"type": "start", "config": asdict(cfg), "world": world.to_json(),
-           "vaccinated": sorted(vaccinated), "patient_zero": p0, "source": llm.source}
+           "vaccinated": sorted(vaccinated), "patient_zero": p0, "source": llm.source,
+           "attack": atk.summary() if atk else {"id": "chonkvid", "name": "ChonkVid-26",
+                                                "channel": "message", "canary": scenario.CANARY}}
     yield {"type": "infection", "tick": 0, "agent": p0, "parent": None,
            "message": seed_msg, "verdict": {"infected": True, "canary": True, "score": 1.0}}
     yield {"type": "tick", "tick": 0, "counts": counts(st), "states": dict(st.state)}
@@ -162,9 +179,12 @@ async def run_epidemic(llm, detector: Detector, cfg: EpidemicConfig,
         async def expose(b: int, a: int):
             vac = cfg.vaccine if b in vaccinated else None
             msgs = agent_messages(world.agents[b], names[a], st.message[a], vac,
-                                  cfg.agent_system or None)
-            reply = await llm.chat(agent_model, msgs)
-            verdict = await detector.check(reply, st.carried[a])
+                                  cfg.agent_system or None, attack=atk)
+            if image is not None and a in image_carriers:
+                from .llm import _attach_image
+                msgs = _attach_image(msgs, image)
+            reply = await llm.chat(model_for_agents, msgs)
+            verdict = await detector.check(reply, st.carried[a], attack=atk)
             return b, a, reply, verdict
 
         results = await asyncio.gather(*(expose(b, a) for b, a in exposed.items()))
@@ -176,6 +196,8 @@ async def run_epidemic(llm, detector: Detector, cfg: EpidemicConfig,
                 st.carried[b] = verdict.carried
                 st.parent[b] = a
                 st.secondary[a] = st.secondary.get(a, 0) + 1
+                if image is not None:
+                    image_carriers.add(b)
                 yield {"type": "infection", "tick": tick, "agent": b, "parent": a,
                        "vaccinated": b in vaccinated, "message": reply,
                        "verdict": verdict.as_dict()}
