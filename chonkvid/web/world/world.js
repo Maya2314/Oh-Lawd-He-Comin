@@ -918,7 +918,7 @@
   }
 
   function enterPick() {
-    hideCard(); $("intro").classList.add("hidden"); $("end").classList.add("hidden");
+    hideCard(); $("intro").close(); $("end").classList.add("hidden");
     stopRun(true);
     resetEpidemic();
     S.picking = true; document.body.classList.add("picking"); $("pick-hint").classList.remove("hidden");
@@ -955,7 +955,7 @@
 
   function setRunningUI(on) {
     const go = $("go");
-    go.textContent = on ? "Stop outbreak" : "Release outbreak";
+    go.textContent = on ? "Stop outbreak" : "Set up outbreak";
     go.classList.toggle("primary", !on);
     $("virus").disabled = on;
   }
@@ -993,7 +993,7 @@
     exitPick(); stopRun(true);
     try {
       const events = await (await fetch("/api/runs/" + encodeURIComponent(id))).json();
-      $("intro").classList.add("hidden"); $("end").classList.add("hidden"); closeIntel();
+      $("intro").close(); $("end").classList.add("hidden"); closeIntel();
       S.running = true; setRunningUI(true);
       if (S.speed === 0) setSpeed(S.lastSpeed || 1);
       for (const ev of events) enqueue(ev);
@@ -1048,7 +1048,6 @@
 
   function buildLegends() {
     $("legend").innerHTML = STATES.map((s) => `<li data-k="${s.key}" title="${esc(s.def)}"><i class="swatch" style="background:${s.color}"></i><span class="lab">${s.label}</span><span class="num">0</span></li>`).join("");
-    $("mini-legend").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i>${s.label}</li>`).join("");
     $("defs").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i><span><b>${s.label}</b>: ${esc(s.def)}</span></li>`).join("") +
       `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_RGB})"></i><span><b>Dashed violet ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
   }
@@ -1066,12 +1065,12 @@
     }
     $("k").oninput = (e) => { S.k = +e.target.value; $("k-val").textContent = S.k; refreshCats(true); };
     $("intro-go").onclick = enterPick;
-    $("intro-explore").onclick = () => $("intro").classList.add("hidden");
-    $("go").onclick = () => (S.running ? stopRun() : enterPick());
+    $("intro-cancel").onclick = () => $("intro").close();
+    $("go").onclick = () => (S.running ? stopRun() : $("intro").showModal());
     $("pick-cancel").onclick = () => { exitPick(); $("news-text").textContent = "Outbreak cancelled."; };
     $("pick-random").onclick = () => startRun(null);
     $("end-again").onclick = enterPick;
-    $("end-change").onclick = () => { $("end").classList.add("hidden"); $("intro").classList.remove("hidden"); };
+    $("end-change").onclick = () => { $("end").classList.add("hidden"); $("intro").showModal(); };
     $("end-view").onclick = () => $("end").classList.add("hidden");
     $("open-intel").onclick = () => ($("intel").classList.contains("open") ? closeIntel() : openIntel());
     $("risk-toggle").onclick = () => {
@@ -1094,8 +1093,8 @@
     for (const id of ["n", "seed"]) $(id).onchange = () => { if (!S.running) loadWorld(); };
     $("ticks").onchange = drawCurve;
     document.addEventListener("keydown", (e) => {
-      if (e.target.matches("input, select, textarea")) return;
-      if (e.key === " ") { e.preventDefault(); setSpeed(S.speed ? 0 : S.lastSpeed || 1); }
+      if ($("intro").open || e.target.matches("input, select, textarea")) return;
+      if (e.key === " " && !e.target.matches("button, a[href]")) { e.preventDefault(); setSpeed(S.speed ? 0 : S.lastSpeed || 1); }
       else if (e.key === "1") setSpeed(1); else if (e.key === "2") setSpeed(2); else if (e.key === "3") setSpeed(4);
       else if (e.key === "Escape") {
         if (S.picking) exitPick();

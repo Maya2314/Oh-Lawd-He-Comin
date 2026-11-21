@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="/static/world/world.css?v=3">
+<link rel="stylesheet" href="/static/world/world.css?v=4">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -87,7 +87,7 @@
     <label class="sr" for="virus">Prompt injection</label>
     <select id="virus" class="virus-select"></select>
     <div class="dz-meta" id="dz-meta">R₀ – · incubation –</div>
-    <button class="btn primary" id="go">Release outbreak</button>
+    <button class="btn primary" id="go">Set up outbreak</button>
   </section>
 
   <section class="panel worldp" aria-label="World status">
@@ -163,25 +163,25 @@
 </aside>
 
 <!-- ============================================================ overlays -->
-<div id="intro" class="overlay">
-  <div class="modal intro-card">
+<dialog id="intro" class="modal intro-card" aria-labelledby="intro-title">
+  <div class="intro-body">
     <div class="intro-head">
       <svg class="logo" shape-rendering="crispEdges" aria-hidden="true"><use href="#cat"/></svg>
       <div>
-        <h1>ChonkVid <span>World Outbreak</span></h1>
-        <p class="lede">Release a prompt injection into a world of AI agents. Watch it spread, then try to stop it.</p>
+        <h1 id="intro-title">Set up outbreak</h1>
+        <p class="lede">Choose an injection and a response, then pick a starting country on the map.</p>
       </div>
     </div>
 
     <div class="intro-grid">
       <div>
-        <div class="step"><b>1</b> Choose a prompt injection</div>
+        <div class="step">Choose a prompt injection</div>
         <label class="sr" for="virus-intro">Prompt injection</label>
         <select id="virus-intro" class="virus-select big"></select>
         <div class="vcard" id="vcard"></div>
       </div>
       <div>
-        <div class="step"><b>2</b> Choose the response</div>
+        <div class="step">Choose the response</div>
         <div class="seg" id="policy" role="radiogroup" aria-label="Vaccination strategy">
           <button role="radio" data-policy="none" class="on" aria-checked="true">
             <b>No response</b><small>Let it run</small></button>
@@ -195,17 +195,14 @@
         <label class="dose">Vaccine doses (k): <b id="k-val">8</b>
           <input id="k" type="range" min="0" max="40" value="8">
         </label>
-        <div class="step"><b>3</b> Pick the starting country on the map</div>
-        <ul class="mini-legend" id="mini-legend"></ul>
       </div>
     </div>
-
-    <div class="intro-actions">
-      <button class="btn ghost" id="intro-explore">Just explore the map</button>
-      <button class="btn primary big" id="intro-go">Choose where it starts<svg><use href="#i-right"/></svg></button>
-    </div>
   </div>
-</div>
+  <div class="intro-actions">
+    <button class="btn ghost" id="intro-cancel">Cancel</button>
+    <button class="btn primary big" id="intro-go">Choose where it starts<svg><use href="#i-right"/></svg></button>
+  </div>
+</dialog>
 
 <div id="end" class="overlay hidden">
   <div class="modal end-card">
@@ -234,6 +231,6 @@
 <script src="/static/world/vendor/d3.min.js"></script>
 <script src="/static/world/vendor/topojson-client.min.js"></script>
 <script src="/static/world/viruses.js?v=2"></script>
-<script src="/static/world/world.js?v=2"></script>
+<script src="/static/world/world.js?v=3"></script>
 </body>
 </html>
