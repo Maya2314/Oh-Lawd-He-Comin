@@ -95,17 +95,9 @@
     hover: null, caseFilter: null, milestones: new Set(), runEnded: false,
     risk: null, showRisk: true,
     fc: null, fcChecks: [], fcNews: new Set(), fcWarned: false, // Timestral outbreak forecast
-    net: loadNetPref(), edges: [], flashes: [],                  // dashboard-style network view
     startDate: new Date(),
   };
   const FC_NEWS_DAYS = [2, 5]; // forecasts announced in the news ticker (match FORECAST_CHECK_TICKS)
-  // "Network" view mirrors the lab dashboard's agent-population animation: every contact is
-  // a line, every exposure flashes along it and fades, and colours fade between states.
-  function loadNetPref() { try { return localStorage.getItem("chonkvid.world.network") !== "0"; } catch (e) { return true; } }
-  function saveNetPref(on) { try { localStorage.setItem("chonkvid.world.network", on ? "1" : "0"); } catch (e) { /* storage blocked */ } }
-  const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
-  const FLASH_MS = REDUCED ? 600 : 1100;  // dashboard: fade .95 -> 0 over 1.1 s
-  const TWEEN_MS = REDUCED ? 0 : 300;     // dashboard: transition: fill .3s
 
   // ------------------------------------------------------------------ canvas + projection
   const base = $("base"), fx = $("fx");
@@ -398,9 +390,6 @@
       const key = a.name < b.name ? a.name + "|" + b.name : b.name + "|" + a.name;
       if (seen.has(key)) continue; seen.add(key); S.routes.push({ a, b });
     }
-    // agent-to-agent contacts, for the network view
-    S.edges = w.edges.map((e) => ({ a: S.byId.get(e.s), b: S.byId.get(e.t), kind: e.kind }))
-      .filter((e) => e.a && e.b);
     resetEpidemic();
     $("pop").textContent = `${w.nodes.length} agents · ${S.cities.filter((c) => c.agents.length).length} offices`;
     drawBase();
@@ -426,7 +415,7 @@
     S.cat = {}; S.prevCat = {}; S.catAt = {}; S.patientZero = null; S.tick = 0; S.history = []; S.peak = 0;
     S.countryTint = new Map(); S.countryFirst = new Set(); S.arcs = []; S.ripples = []; S.milestones = new Set();
     S.runEnded = false; S.caseFilter = null;
-    S.fc = null; S.fcChecks = []; S.fcNews = new Set(); S.fcWarned = false; S.flashes = [];
+    S.fc = null; S.fcChecks = []; S.fcNews = new Set(); S.fcWarned = false;
     for (const a of S.agents) { S.phase[a.id] = "S"; S.cat[a.id] = S.prevCat[a.id] = "N"; S.catAt[a.id] = 0; }
     $("cases").innerHTML = ""; $("who").innerHTML = `<div class="empty">${$("who-on").checked ? "Le Chonk's situation reports appear here during a run." : "Turn on WHO briefings in Setup to get Le Chonk's situation reports."}</div>`;
     $("case-filter").textContent = "Every infection and every resisted exposure, newest first. Click an agent on the map to filter.";
@@ -822,7 +811,6 @@
         if (!a || !b) break;
         if (S.phase[b.id] === "S") S.touched.add(b.id);
         S.arcs.push({ a, b, t0: now + Math.random() * dur * 0.4, dur, venue: ev.channel === "venue" });
-        S.flashes.push({ a, b, t0: now, venue: ev.channel === "venue" }); // network view
         if (ev.channel === "venue" && !S._venueTick) { S._venueTick = ev.tick; }
         if (ev.channel === "venue" && S._venueHeadline !== ev.tick) {
           S._venueHeadline = ev.tick;
@@ -1065,55 +1053,6 @@
     (1 - t) * (1 - t) * a[1] + 2 * (1 - t) * t * c[1] + t * t * b[1],
   ];
 
-  // A contact between two agents: straight inside one office, the map's curved route shape
-  // between offices (so it lines up with the flight routes on the base map).
-  function edgePath(g, a, b, ax, ay, bx, by) {
-    g.moveTo(ax, ay);
-    if (S.cityOf.get(a.id) !== S.cityOf.get(b.id)) { const c = ctrl([ax, ay], [bx, by]); g.quadraticCurveTo(c[0], c[1], bx, by); }
-    else g.lineTo(bx, by);
-  }
-
-  function drawNetwork(g, now, mk) {
-    const lw = Math.min(1.6, mk);
-    g.save(); g.lineCap = "round";
-    // Every contact, faint, in the theme's route colour; households stronger, all stronger as
-    // you zoom in. With the soundscape on, its own contact links already show, so skip these.
-    if (!(window.SoundPhysics && window.SoundPhysics.on)) {
-      g.strokeStyle = TH.route; g.lineWidth = lw;
-      for (const [household, base] of [[false, 0.6], [true, 1]]) {
-        g.globalAlpha = Math.min(1, base * mk);
-        g.beginPath();
-        for (const e of S.edges) {
-          if ((e.kind === "household") !== household) continue;
-          const ax = sx(e.a.p), ay = sy(e.a.p), bx = sx(e.b.p), by = sy(e.b.p);
-          if (Math.hypot(bx - ax, by - ay) < 2) continue;
-          edgePath(g, e.a, e.b, ax, ay, bx, by);
-        }
-        g.stroke();
-      }
-    }
-    // exposure flashes along the contact, fading out (dashboard: .flash, 1.1 s)
-    for (const f of S.flashes) {
-      const dt = now - f.t0; if (dt < 0 || dt > FLASH_MS) continue;
-      g.globalAlpha = REDUCED ? 0.95 : 0.95 * (1 - dt / FLASH_MS);
-      g.strokeStyle = f.venue ? `rgb(${VENUE_CYAN})` : COLOR.I;
-      const ax = sx(f.a.p), ay = sy(f.a.p), bx = sx(f.b.p), by = sy(f.b.p);
-      g.beginPath();
-      if (Math.hypot(bx - ax, by - ay) < 8) { // same spot at this zoom: pulse on the exposed agent
-        g.arc(bx, by, (4 + (REDUCED ? 6 : 14 * dt / FLASH_MS)) * lw, 0, Math.PI * 2); g.lineWidth = 1.6 * lw;
-      } else { edgePath(g, f.a, f.b, ax, ay, bx, by); g.lineWidth = 2 * lw; }
-      g.stroke();
-    }
-    g.globalAlpha = 1; g.restore();
-  }
-
-  // Marker colour fades from the previous state to the new one (dashboard: transition: fill .3s).
-  function markerColor(a, c, now) {
-    const prev = S.prevCat[a.id], since = now - (S.catAt[a.id] || 0);
-    if (!TWEEN_MS || !prev || prev === c || since >= TWEEN_MS) return COLOR[c];
-    return d3.interpolateRgb(COLOR[prev], COLOR[c])(Math.max(0, since / TWEEN_MS));
-  }
-
   function frame(now) {
     const g = ctx;
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -1167,13 +1106,9 @@
       }
     }
 
-    // network view (dashboard style): contact lines + exposure flashes
-    S.flashes = S.flashes.filter((f) => now < f.t0 + FLASH_MS + 100);
-    if (S.net) drawNetwork(g, now, mk);
-
-    // transmission arcs (flight style, when the network view is off)
+    // transmission arcs
     S.arcs = S.arcs.filter((r) => now < r.t0 + r.dur + 700);
-    for (const r of S.net ? [] : S.arcs) {
+    for (const r of S.arcs) {
       if (now < r.t0) continue;
       const a = [sx(r.a.p), sy(r.a.p)], b = [sx(r.b.p), sy(r.b.p)];
       const t = Math.min(1, (now - r.t0) / r.dur), fade = t < 1 ? 1 : Math.max(0, 1 - (now - r.t0 - r.dur) / 700);
@@ -1233,11 +1168,8 @@
         g.save(); g.setLineDash([2, 2.5]); g.strokeStyle = `rgba(${VENUE_CYAN}, 0.85)`; g.lineWidth = 1.2;
         g.beginPath(); g.arc(x, y, r + 3.5, 0, Math.PI * 2); g.stroke(); g.restore();
       }
-      g.fillStyle = S.net ? markerColor(a, c, now) : COLOR[c]; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = COLOR[c]; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
       g.lineWidth = 1.5; g.strokeStyle = c === "N" ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.95)"; g.stroke();
-      if (S.net && S.vaccinated.has(a.id)) { // hardened ring stays on, even after infection (dashboard)
-        g.beginPath(); g.arc(x, y, r + 2.2, 0, Math.PI * 2); g.strokeStyle = COLOR.V; g.lineWidth = 1.8; g.stroke();
-      }
       if (S.caseFilter === a.id) { g.strokeStyle = "#5fd4ff"; g.lineWidth = 2; g.beginPath(); g.arc(x, y, r + 6, 0, Math.PI * 2); g.stroke(); }
     }
 
@@ -1541,9 +1473,7 @@
     $("legend").innerHTML = STATES.map((s) => `<li data-k="${s.key}" title="${esc(s.def)}"><i class="swatch" style="background:${s.color}"></i><span class="lab">${s.label}</span><span class="num">0</span></li>`).join("");
     $("mini-legend").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i>${s.label}</li>`).join("");
     $("defs").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i><span><b>${s.label}</b>: ${esc(s.def)}</span></li>`).join("") +
-      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>` +
-      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.8px ${COLOR.V}"></i><span><b>Blue ring</b> (🕸 Network view): a hardened agent. The ring stays even if it is later infected.</span></li>` +
-      `<li><i class="swatch" style="background:${COLOR.I};border-radius:1px;height:3px"></i><span><b>Red flash</b> (🕸 Network view): an exposure travelling along a real contact; cyan when it came through the group chat. Faint lines are the contacts themselves.</span></li>`;
+      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
   }
 
   function runMapCommand(transcript) {
@@ -1701,9 +1631,6 @@
     $("mini-curve").onkeydown = (e) => {
       if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openCurve(); }
     };
-    const syncNet = () => { $("net-toggle").classList.toggle("on", S.net); $("net-toggle").setAttribute("aria-pressed", String(S.net)); };
-    syncNet();
-    $("net-toggle").onclick = () => { S.net = !S.net; saveNetPref(S.net); syncNet(); };
     $("close-intel").onclick = closeIntel;
     $("zoom-reset").onclick = () => zoomHome();
     const sndBtn = $("sound-toggle");

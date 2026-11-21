@@ -281,15 +281,6 @@ infected curves for the rest of the run, as a 10–90% band and a median.
   so `end` stays the last event of a recording.
 - Code: `chonkvid/forecast.py`; tests with a fake model: `tests/test_forecast.py`.
 
-### Network view on the world map
-
-The **🕸 Network** button (on by default, remembered per browser) animates the map the way
-the lab dashboard's agent-population view does: every agent-to-agent contact is a faint
-line; every exposure flashes along its contact and fades (red, or cyan through the group
-chat), with a pulse on the exposed agent when the two are too close to see apart; agent
-colours fade between states; and hardened agents keep a blue ring even after infection.
-Switch it off for the flight-arc animation.
-
 ## Built with
 
 - **Ministral**: the agent population.
