@@ -11,6 +11,7 @@ let status = null, results = null, measuredPrompt = null;
 let ws = null, replayTimer = null, stopReplay = false;
 let world = null, vaccinated = new Set(), patientZero = null, names = {};
 let history = [];   // [{tick, S,E,I,R}]
+let fc = null;      // latest Timestral forecast event (live curve only)
 const pct = (x) => (x * 100).toFixed(0) + "%";
 const f2 = (x) => Number(x).toFixed(2);
 const trialDetail = (arm) => `${arm.k}/${arm.n} forwarded · 95% CI ${pct(arm.ci[0])}–${pct(arm.ci[1])}`;
@@ -125,7 +126,9 @@ function flash(a, b, channel) {
 
 // ---------------------------------------------------------------- curve
 function drawCurve(svg = $("curve"), points = history, n = world?.nodes.length ?? 40,
-                   T = Math.max(12, points.at(-1)?.tick ?? 0), states = ["S", "E", "I", "R"]) {
+                   T = Math.max(12, points.at(-1)?.tick ?? 0,
+                                points === history && fc ? fc.ticks.at(-1) : 0),
+                   states = ["S", "E", "I", "R"]) {
   svg.replaceChildren();
   const W = 400, H = 170, pad = 22;
   for (let i = 0; i <= 4; i++) {
@@ -138,6 +141,21 @@ function drawCurve(svg = $("curve"), points = history, n = world?.nodes.length ?
     if (!points.length) continue;
     const pts = points.map((h) => `${X(h.tick)},${Y(h[s])}`).join(" ");
     el("polyline", { points: pts, fill: "none", stroke: C[s], "stroke-width": s === "I" ? 3 : 2, "stroke-linejoin": "round" }, svg);
+  }
+  // Timestral forecast (live curve only): 10-90% band + dashed median from the last observed point
+  if (points === history && fc && points.length) {
+    const last = points.at(-1);
+    for (const s of ["S", "I"]) {
+      const b = fc[s]; if (!b) continue;
+      const ts = [last.tick, ...fc.ticks];
+      const lo = [last[s], ...b.p10], mid = [last[s], ...b.p50], hi = [last[s], ...b.p90];
+      const band = ts.map((t, i) => `${X(t)},${Y(hi[i])}`).concat(ts.map((t, i) => `${X(t)},${Y(lo[i])}`).reverse()).join(" ");
+      el("polygon", { points: band, fill: C[s], "fill-opacity": 0.15, stroke: "none" }, svg);
+      el("polyline", { points: ts.map((t, i) => `${X(t)},${Y(mid[i])}`).join(" "), fill: "none", stroke: C[s],
+                       "stroke-width": 1.5, "stroke-dasharray": "4 3" }, svg);
+    }
+    const ft = el("text", { x: W - 6, y: 12, "font-size": 10, fill: "var(--muted)", "text-anchor": "end" }, svg);
+    ft.textContent = `Timestral forecast · 80% band · ${fc.ms} ms`;
   }
   const t = el("text", { x: W - 6, y: H - 6, "font-size": 10, fill: "var(--muted)", "text-anchor": "end" }, svg); t.textContent = "tick";
 }
@@ -218,7 +236,7 @@ function filterTicker(id) {
 
 // ---------------------------------------------------------------- events
 function reset() {
-  history = []; $("ticker").innerHTML = ""; $("who-feed").innerHTML = ""; $("err").classList.add("hidden");
+  history = []; fc = null; $("ticker").innerHTML = ""; $("who-feed").innerHTML = ""; $("err").classList.add("hidden");
   tickerFilter = null; $("sel").textContent = "";
 }
 function handle(ev) {
@@ -270,6 +288,13 @@ function handle(ev) {
       addMsg("who-feed", "sitrep", `Run complete (${ev.source})`, `Attack rate ${pct(s.attack_rate)} · peak ${s.peak_infectious} infected at tick ${s.peak_tick} · ${s.vaccinated_infected}/${s.k} hardened agents infected · ${ev.usage.chat_calls} model calls`);
       break;
     }
+    case "forecast": fc = ev; drawCurve(); break;
+    case "forecast_check":
+      addMsg("who-feed", "sitrep", `Timestral forecast check · made at tick ${ev.made_at} (${ev.context} points of context)`,
+             `Predicted attack rate ${pct(ev.pred_attack_rate)}, actual ${pct(ev.actual_attack_rate)} by tick ${ev.final_tick}. ` +
+             `Mean error ${f2(ev.mae_agents)} agents over ${ev.scored_ticks} ticks; actual inside the 80% band ${pct(ev.coverage_80)} of the time. Model ${ev.model}.`);
+      break;
+    case "forecast_error": addMsg("who-feed", "sitrep", "Timestral forecast off", ev.message); break;
     case "recorded": loadRuns(ev.id); break;
     case "error": $("err").textContent = ev.message; $("err").classList.remove("hidden"); break;
   }
