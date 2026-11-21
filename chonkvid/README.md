@@ -247,6 +247,40 @@ instead of this machine's. "Risk-based vaccination" hardens the k agents the for
 ranks highest. The forecast answers "if this attack reaches the fleet, who is hit?",
 not "will this attack happen?".
 
+## Outbreak forecast (Timestral)
+
+Separate from the risk forecast above (which asks *who* gets hit), the outbreak forecast
+asks *how many*. After every simulated day, **Timestral** (Mistral's time-series model,
+`mistralai/Timestral-209M`, local on CPU, no API key) predicts the susceptible and
+infected curves for the rest of the run, as a 10–90% band and a median.
+
+- **Lab dashboard (`/`)**: band and dashed median on the Epidemic curve; at the end of the
+  run, two forecast checks in the WHO feed.
+- **World map (`/world`)**: the band on the outbreak chart and on an always-visible mini
+  curve in the WORLD panel (click it for the full chart), forecast headlines on day 2 and
+  day 5, and a forecast-vs-actual line on the end screen.
+- **Forecast checks**: the forecasts made on day 2 (3 points of history) and day 5 (6
+  points) are scored against what happened: predicted vs actual attack rate, mean error in
+  agents, and how often the real curve stayed inside the 80% band. In mock runs both
+  undershoot badly (about 45% and 34% predicted against 85–90% actual): a general forecaster
+  extends the recent trend, and a self-spreading prompt that stalls and then takes off does
+  not follow it. That is the case for measuring spread directly. Mock numbers; not yet
+  measured on a live run.
+
+```bash
+.venv/bin/python -m pip install torch https://github.com/mistralai/timestral/archive/refs/heads/main.zip
+```
+
+- Optional: without `timestral` installed, or with `FORECAST=0`, no forecast events are
+  sent and every page behaves as before. A forecast error is reported once, then the
+  forecast turns off for that run; the epidemic carries on.
+- `TIMESTRAL_MODEL` is a Hugging Face id (5M / 28M / 123M / 209M) or a local folder with
+  `config.json` + `model.safetensors`. `FORECAST_CHECK_TICKS` (default `2,5`) picks which
+  forecasts are scored. Forecast events are recorded with the run (locally and, when
+  mirroring, in Supabase), so replays show them too. The checks are sent just before `end`,
+  so `end` stays the last event of a recording.
+- Code: `chonkvid/forecast.py`; tests with a fake model: `tests/test_forecast.py`.
+
 ## Built with
 
 - **Ministral**: the agent population.

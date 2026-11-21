@@ -50,6 +50,7 @@
   <button class="pill zoom-step" id="zoom-out" title="Zoom out (−)" aria-label="Zoom out">−</button>
   <button class="pill zoom-step" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
   <button class="pill" id="sound-toggle" aria-pressed="false" title="Turn the world's chatter on (Voxtral). Then click a contact link to solo that conversation.">🔇 Sound off</button>
+  <button class="pill" id="theme-toggle" type="button" title="Switch to light mode" aria-label="Switch to light mode">☀ Light</button>
   <a class="pill" href="/" title="The original numbers dashboard">🧪 Lab view</a>
 </nav>
 
@@ -74,6 +75,9 @@
 
   <section class="panel worldp" aria-label="World status">
     <div class="panel-tab">WORLD <span class="muted" id="pop">0 agents</span></div>
+    <canvas id="mini-curve" class="mini-curve" role="button" tabindex="0"
+            aria-label="Outbreak curve with the Timestral forecast. Open the full chart."
+            title="Outbreak curve with the Timestral forecast. Click for the full chart."></canvas>
     <div class="stack" id="stack" aria-hidden="true"></div>
     <ul class="legend" id="legend"></ul>
   </section>
@@ -224,6 +228,7 @@
       <div><div class="v" id="e-held">–</div><div class="k">vaccinated agents held</div></div>
       <div><div class="v" id="e-r">–</div><div class="k">observed R (cases per case)</div></div>
     </div>
+    <p class="end-forecast hidden" id="end-forecast"></p>
     <p class="end-note" id="end-note"></p>
     <div class="intro-actions">
       <button class="btn ghost" id="end-view">Keep looking at the map</button>
@@ -242,6 +247,6 @@
 <script src="/static/world/vendor/topojson-client.min.js"></script>
 <script src="/static/world/viruses.js"></script>
 <script src="/static/world/sound.js"></script>
-<script src="/static/world/world.js?v=8"></script>
+<script src="/static/world/world.js?v=12"></script>
 </body>
 </html>

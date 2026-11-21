@@ -36,11 +36,13 @@
     const cs = getComputedStyle(document.documentElement);
     const v = (n) => cs.getPropertyValue(n).trim();
     Object.assign(TH, {
-      ocean1: v("--map-ocean-1"), ocean2: v("--map-ocean-2"), ocean3: v("--map-ocean-3"),
+      ocean1: v("--map-ocean-1"), ocean2: v("--map-ocean-2"), ocean3: v("--map-ocean-3"), land: v("--map-land"),
       grat: v("--map-grat"), coastGlow: v("--map-coast-glow"), coast: v("--map-coast"),
       border: v("--map-border"), shadow: v("--map-shadow"), route: v("--map-route"),
       labelBg: v("--map-label-bg"), labelInk: v("--map-label-ink"), labelHq: v("--map-label-hq"),
       normalSpeck: v("--map-normal-speck"), muted: v("--muted"), tint3: v("--tint-3"),
+      ink: v("--ink"), edgeHi: v("--edge-hi"),
+      light: (window.ChonkTheme ? ChonkTheme.effective() : "dark") === "light",
     });
   }
   readTheme();
@@ -87,14 +89,20 @@
     world: null, sig: "", agents: [], byId: new Map(), cityOf: new Map(), routes: [],
     phase: {}, touched: new Set(), vaccinated: new Set(), ever: new Set(), lastMsg: {},
     cat: {}, prevCat: {}, catAt: {}, patientZero: null, tick: 0, history: [], peak: 0,
-    countryTint: new Map(), countryFirst: new Set(),
+    countryFirst: new Set(), ctry: new Map(), // per-country state colour (see updateCountries)
     arcs: [], ripples: [],
     running: false, ws: null, queue: [], timer: null, speed: 1, lastSpeed: 1,
     picking: false, virus: VIRUSES[0], policy: "none", k: 8,
     hover: null, caseFilter: null, milestones: new Set(), runEnded: false,
     risk: null, showRisk: true,
+    fc: null, fcChecks: [], fcNews: new Set(), fcWarned: false, // Timestral outbreak forecast
     startDate: new Date(),
   };
+  const FC_NEWS_DAYS = [2, 5]; // forecasts announced in the news ticker (match FORECAST_CHECK_TICKS)
+  const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  // A country takes the colour of its most serious state, in this order (Normal = plain land).
+  const COUNTRY_PRIORITY = ["I", "E", "R", "S", "V"];
+  const COUNTRY_FLASH_MS = 1200;
 
   // ------------------------------------------------------------------ canvas + projection
   const base = $("base"), fx = $("fx");
@@ -174,19 +182,6 @@
     return c;
   }
 
-  function landColor(f) {
-    const [lon, lat] = d3.geoCentroid(f);
-    const h = hash(f.id || f.properties.name) % 1000 / 1000;
-    const alat = Math.abs(lat);
-    let c;
-    if (alat > 60) c = d3.color("#9fae95");
-    else if ((lat > 14 && lat < 35 && lon > -18 && lon < 62) || (lat < -18 && lat > -36 && lon > 112 && lon < 152)) c = d3.color("#c4a165");
-    else if (lat > 35 && lat < 50 && lon > 45 && lon < 115) c = d3.color("#a99c6b");
-    else if (alat < 13) c = d3.color("#3f6d31");
-    else c = d3.color("#5f7f3d");
-    return c.brighter(h * 0.35 - 0.12).formatHex();
-  }
-
   function drawBase() {
     const g = bctx;
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
@@ -206,14 +201,12 @@
     // graticule
     g.beginPath(); path(d3.geoGraticule10()); g.strokeStyle = TH.grat; g.lineWidth = lw; g.stroke();
 
-    // land glow + shadow
+    // land: one plain colour for every country (theme token), with glow + shadow
     g.save();
     g.shadowColor = TH.shadow; g.shadowBlur = 18 * DPR; g.shadowOffsetY = 3 * DPR;
-    g.beginPath(); path(S.land); g.fillStyle = "#4c6a37"; g.fill();
+    g.beginPath(); path(S.land); g.fillStyle = TH.land; g.fill();
     g.restore();
     g.beginPath(); path(S.land); g.strokeStyle = TH.coastGlow; g.lineWidth = 3.5 * lw; g.stroke();
-
-    for (const c of S.countries) { g.beginPath(); path(c); g.fillStyle = c.fill; g.fill(); }
 
     // texture over land
     g.save(); g.beginPath(); path(S.land); g.clip();
@@ -410,8 +403,9 @@
   function resetEpidemic() {
     S.phase = {}; S.touched = new Set(); S.vaccinated = new Set(); S.ever = new Set(); S.lastMsg = {};
     S.cat = {}; S.prevCat = {}; S.catAt = {}; S.patientZero = null; S.tick = 0; S.history = []; S.peak = 0;
-    S.countryTint = new Map(); S.countryFirst = new Set(); S.arcs = []; S.ripples = []; S.milestones = new Set();
+    S.countryFirst = new Set(); S.arcs = []; S.ripples = []; S.milestones = new Set();
     S.runEnded = false; S.caseFilter = null;
+    S.fc = null; S.fcChecks = []; S.fcNews = new Set(); S.fcWarned = false; S.ctry = new Map();
     for (const a of S.agents) { S.phase[a.id] = "S"; S.cat[a.id] = S.prevCat[a.id] = "N"; S.catAt[a.id] = 0; }
     $("cases").innerHTML = ""; $("who").innerHTML = `<div class="empty">${$("who-on").checked ? "Le Chonk's situation reports appear here during a run." : "Turn on WHO briefings in Setup to get Le Chonk's situation reports."}</div>`;
     $("case-filter").textContent = "Every infection and every resisted exposure, newest first. Click an agent on the map to filter.";
@@ -437,20 +431,33 @@
       counts[c]++;
     }
     renderCounts(counts);
-    // country tint target: share of that country's agents that are infected/exposed
-    const per = new Map();
-    for (const a of S.agents) {
-      const k = a.city.country; if (!k) continue;
-      const e = per.get(k) || { n: 0, i: 0, r: 0 }; e.n++;
-      if (S.cat[a.id] === "I" || S.cat[a.id] === "E") e.i++;
-      if (S.cat[a.id] === "R") e.r++;
-      per.set(k, e);
-    }
-    for (const [k, e] of per) {
-      const t = S.countryTint.get(k) || { cur: 0, target: 0, rec: 0, recT: 0 };
-      t.target = e.i / e.n; t.recT = e.r / e.n; S.countryTint.set(k, t);
-    }
+    updateCountries(now, silent);
     return counts;
+  }
+
+  // Countries that host agents take the colour key of their most serious state. Agents in an
+  // office whose country is missing from the atlas (Singapore) are grouped by office instead
+  // and drawn as a disc. The first time the attack lands (exposed or infected), the country flashes.
+  function updateCountries(now, silent) {
+    const groups = new Map();
+    for (const a of S.agents) {
+      const key = a.city.country || `office:${a.city.name}`;
+      let gp = groups.get(key);
+      if (!gp) { gp = { poly: a.city.country, cities: new Set(), n: 0, count: {} }; groups.set(key, gp); }
+      gp.cities.add(a.city); gp.n++;
+      const c = S.cat[a.id]; gp.count[c] = (gp.count[c] || 0) + 1;
+    }
+    for (const [key, gp] of groups) {
+      const state = COUNTRY_PRIORITY.find((k) => gp.count[k]) || "N";
+      let e = S.ctry.get(key);
+      if (!e) { e = { poly: gp.poly, cities: [...gp.cities], state: "N", share: 0, cur: 0, flashAt: 0, landed: false }; S.ctry.set(key, e); }
+      e.state = state;
+      e.share = state === "N" ? 0 : gp.count[state] / gp.n;
+      if (!silent && !e.landed && (state === "E" || state === "I")) {
+        e.landed = true; e.flashAt = now;
+        if (!REDUCED) for (const c of e.cities) S.ripples.push({ a: c, t0: now, dur: COUNTRY_FLASH_MS, color: COLOR[state], r: 44 });
+      }
+    }
   }
 
   let lastCounts = {};
@@ -728,14 +735,23 @@
   }
 
   // ------------------------------------------------------------------ event playback
-  function enqueue(ev) { S.queue.push(ev); if (!S.timer) pump(); }
+  function enqueue(ev) {
+    // A live forecast lands ~0.4 s after its day, while playback pauses on that day:
+    // show it now rather than after the pause, if nothing is queued ahead of it.
+    if (ev.type === "forecast" && S.timer && !S.queue.length && S.tick >= ev.tick) { apply(ev); return; }
+    S.queue.push(ev); if (!S.timer) pump();
+  }
   function pump() {
     S.timer = null;
     if (S.speed === 0) return;
     while (S.queue.length) {
       const ev = S.queue.shift();
       apply(ev);
-      if (ev.type === "tick" && ev.phase === "resolved") { S.timer = setTimeout(pump, 1700 / S.speed); return; }
+      if (ev.type === "tick" && ev.phase === "resolved") {
+        // Replays queue everything up front: draw this day's forecast with the day itself.
+        while (S.queue.length && S.queue[0].type === "forecast" && S.queue[0].tick === ev.tick) apply(S.queue.shift());
+        S.timer = setTimeout(pump, 1700 / S.speed); return;
+      }
       if (ev.type === "tick" && ev.phase === "exposed") { S.timer = setTimeout(pump, 1000 / S.speed); return; }
     }
   }
@@ -842,6 +858,20 @@
         if (first) headline(`WHO: ${first.slice(0, 140)}`, true);
         break;
       }
+      case "forecast": {
+        S.fc = ev;
+        drawCurve();
+        if (FC_NEWS_DAYS.includes(ev.tick) && !S.fcNews.has(ev.tick)) {
+          S.fcNews.add(ev.tick);
+          const p = fcPrediction(ev);
+          if (p) headline(`Timestral forecast: about ${Math.round(p.rate * 100)}% of agents infected by day ${p.day}`, true);
+        }
+        break;
+      }
+      case "forecast_check": S.fcChecks.push(ev); break;
+      case "forecast_error":
+        if (!S.fcWarned) { S.fcWarned = true; toast(`Timestral forecast off: ${ev.message}`, true); }
+        break;
       case "end": showEnd(ev); break;
       case "recorded": loadRuns(ev.id); loadRisk(); break;
       case "error": toast(ev.message); stopRun(); break;
@@ -909,26 +939,40 @@
   }
 
   // ------------------------------------------------------------------ curve (stacked area)
+  // Two copies of the same chart: the full one in the Intel drawer, and a compact one in
+  // the WORLD panel that stays on screen for the whole run.
   function drawCurve() {
-    const c = $("curve"); if (!c.offsetWidth) return;
-    const w = c.offsetWidth, h = 200, d = DPR;
+    renderCurve($("curve"), false);
+    renderCurve($("mini-curve"), true);
+  }
+
+  function renderCurve(c, mini) {
+    if (!c || !c.clientWidth || !c.clientHeight) return;
+    const w = c.clientWidth, h = c.clientHeight, d = DPR;
     c.width = w * d; c.height = h * d;
     const g = c.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
     g.clearRect(0, 0, w, h);
-    const pad = { l: 28, r: 8, t: 10, b: 20 };
+    const pad = mini ? { l: 6, r: 6, t: 5, b: 15 } : { l: 28, r: 8, t: 10, b: 20 };
     const n = S.agents.length || 1;
-    const days = Math.max(+$("ticks").value || 12, S.history.length ? S.history[S.history.length - 1].tick : 0);
+    const days = Math.max(+$("ticks").value || 12, S.history.length ? S.history[S.history.length - 1].tick : 0,
+                          S.fc ? S.fc.ticks[S.fc.ticks.length - 1] : 0);
     const X = (t) => pad.l + ((w - pad.l - pad.r) * t) / Math.max(1, days);
     const Y = (v) => h - pad.b - ((h - pad.t - pad.b) * v) / n;
-    g.font = "11px Inter, sans-serif"; g.fillStyle = TH.muted; g.strokeStyle = TH.tint3;
-    for (let i = 0; i <= 4; i++) {
-      const y = Y((n * i) / 4); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(w - pad.r, y); g.stroke();
-      g.fillText(Math.round((n * i) / 4), 4, y + 4);
+    g.font = mini ? "9.5px Inter, sans-serif" : "11px Inter, sans-serif";
+    g.fillStyle = TH.muted; g.strokeStyle = TH.tint3;
+    if (!mini) {
+      for (let i = 0; i <= 4; i++) {
+        const y = Y((n * i) / 4); g.beginPath(); g.moveTo(pad.l, y); g.lineTo(w - pad.r, y); g.stroke();
+        g.fillText(Math.round((n * i) / 4), 4, y + 4);
+      }
+      g.fillText("day", pad.l + 2, pad.t + 10);
     }
-    g.fillText("day", pad.l + 2, pad.t + 10);
-    for (let t = 0; t <= days; t += Math.max(1, Math.round(days / 6))) g.fillText(t, X(t) - 3, h - 5);
+    const step = Math.max(1, Math.round(days / (mini ? 7 : 6)));
+    for (let t = 0; t <= days; t += step) g.fillText(t, Math.max(1, X(t) - 3), h - (mini ? 4 : 5));
     if (!S.history.length) {
-      g.fillStyle = TH.muted; g.font = "13px Inter, sans-serif"; g.fillText("The outbreak curve draws here during a run.", pad.l + 10, h / 2);
+      g.fillStyle = TH.muted; g.font = mini ? "12px Inter, sans-serif" : "13px Inter, sans-serif";
+      g.fillText(mini ? "Outbreak curve and Timestral forecast appear here during a run."
+                      : "The outbreak curve draws here during a run.", pad.l + (mini ? 4 : 10), (h - pad.b) / 2 + 4);
       return;
     }
     const order = ["I", "E", "S", "N", "V", "R"]; // infected at the bottom, like an epi curve
@@ -943,6 +987,59 @@
       g.globalAlpha = k === "I" ? 0.95 : 0.75; g.fill(); g.globalAlpha = 1;
       lower = upper;
     }
+    drawForecast(g, X, Y, w, pad, n, mini);
+  }
+
+  // Timestral forecast over the stacked curve. Infected is the bottom layer, so its band
+  // sits on the same scale as the real counts. "Total infected" = n - S, dotted.
+  function drawForecast(g, X, Y, w, pad, n, mini) {
+    const fc = S.fc, last = S.history[S.history.length - 1];
+    if (!fc || !last || !fc.I || !fc.S) return;
+    const idx = fc.ticks.map((t, i) => i).filter((i) => fc.ticks[i] > last.tick);
+    if (!idx.length) return;
+    const ts = [last.tick, ...idx.map((i) => fc.ticks[i])];
+    const pick = (arr, now) => [now, ...idx.map((i) => arr[i])];
+    const iLo = pick(fc.I.p10, last.I), iMid = pick(fc.I.p50, last.I), iHi = pick(fc.I.p90, last.I);
+    const ever = pick(fc.S.p50.map((s) => n - s), last.I + last.E + last.R);
+    g.save();
+    // "now" divider
+    g.strokeStyle = TH.muted; g.globalAlpha = 0.45; g.setLineDash([2, 3]); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(X(last.tick), pad.t); g.lineTo(X(last.tick), Y(0)); g.stroke();
+    g.globalAlpha = 1; g.setLineDash([]);
+    // infected: 10-90% band + dashed median (outlined so it reads over the stack)
+    g.beginPath();
+    ts.forEach((t, i) => (i ? g.lineTo(X(t), Y(iHi[i])) : g.moveTo(X(t), Y(iHi[i]))));
+    for (let i = ts.length - 1; i >= 0; i--) g.lineTo(X(ts[i]), Y(iLo[i]));
+    g.closePath(); g.fillStyle = COLOR.I; g.globalAlpha = 0.22; g.fill(); g.globalAlpha = 1;
+    const line = (vals, color, dash, width) => {
+      g.beginPath(); ts.forEach((t, i) => (i ? g.lineTo(X(t), Y(vals[i])) : g.moveTo(X(t), Y(vals[i]))));
+      g.setLineDash(dash); g.strokeStyle = color; g.lineWidth = width; g.stroke();
+    };
+    line(iMid, "rgba(0,0,0,.5)", [], mini ? 3 : 3.5);
+    line(iMid, COLOR.I, mini ? [4, 3] : [5, 4], mini ? 1.6 : 2);
+    line(ever, TH.ink, [1.5, 3], mini ? 1.3 : 1.6);
+    // legend on the theme's label box
+    g.setLineDash([]);
+    const fs = mini ? 9.5 : 10.5, lh = fs + 2.5;
+    g.font = `${fs}px Inter, sans-serif`; g.textAlign = "left";
+    const rows = mini
+      ? [["Timestral forecast · 80% band", TH.labelInk]]
+      : [["Timestral forecast · 80% band", TH.labelInk], ["– – infected", COLOR.I], ["··· total infected", TH.labelInk]];
+    const bw = Math.max(...rows.map(([t]) => g.measureText(t).width)) + 14, bh = rows.length * lh + (mini ? 5 : 8);
+    const bx = w - pad.r - bw - 2, by = pad.t + 2;
+    g.fillStyle = TH.labelBg; g.strokeStyle = TH.edgeHi; g.lineWidth = 1;
+    g.beginPath(); g.roundRect ? g.roundRect(bx, by, bw, bh, 4) : g.rect(bx, by, bw, bh); g.fill(); g.stroke();
+    rows.forEach(([t, c], i) => { g.fillStyle = c; g.fillText(t, bx + 7, by + (mini ? fs + 2 : 14) + i * lh); });
+    g.restore();
+  }
+
+  // Predicted attack rate at the last forecast day: (n - S - patient zero) / (n - 1),
+  // the same definition the end screen and the server's forecast check use.
+  function fcPrediction(fc) {
+    const n = S.agents.length;
+    if (!fc || !fc.S || !fc.ticks.length || n < 2) return null;
+    const j = fc.ticks.length - 1;
+    return { day: fc.ticks[j], rate: Math.max(0, (n - fc.S.p50[j] - 1) / (n - 1)) };
   }
 
   // ------------------------------------------------------------------ frame loop
@@ -965,18 +1062,6 @@
     g.clearRect(0, 0, W, H);
     const k = T.k, mk = Math.min(2.2, Math.sqrt(k));
 
-    // country tints
-    if (S.countryTint.size) {
-      g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
-      const path = d3.geoPath(proj, g);
-      for (const [c, t] of S.countryTint) {
-        t.cur += (t.target - t.cur) * 0.04; t.rec += (t.recT - t.rec) * 0.04;
-        if (t.cur > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(255, 24, 24, ${0.2 + t.cur * 0.4})`; g.fill(); }
-        else if (t.rec > 0.01) { g.beginPath(); path(c); g.fillStyle = `rgba(40, 200, 90, ${t.rec * 0.16})`; g.fill(); }
-      }
-      g.restore();
-    }
-
     // pickable countries while choosing patient zero
     if (S.picking) {
       g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
@@ -990,6 +1075,42 @@
         g.strokeStyle = `rgba(255,120,120,${0.5 + 0.4 * pulse})`; g.lineWidth = 1.4 / k; g.stroke();
       }
       g.restore();
+    }
+
+    // countries light up in the colour key of their most serious state
+    if (S.ctry.size) {
+      const boost = TH.light ? 1.3 : 1; // the light land needs a little more colour to read
+      let path = null;
+      for (const e of S.ctry.values()) {
+        const target = e.state === "N" ? 0 : Math.min(0.75, (0.18 + 0.32 * e.share) * boost);
+        e.cur += (target - e.cur) * 0.06;
+        if (e.state !== "N") e.col = COLOR[e.state];
+        const since = now - e.flashAt;
+        const alpha = e.flashAt && !REDUCED && since < COUNTRY_FLASH_MS
+          ? Math.max(e.cur, 0.85 * (1 - since / COUNTRY_FLASH_MS)) : e.cur;
+        if (alpha < 0.01 || !e.col) continue;
+        if (e.poly) {
+          if (!path) {
+            g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
+            path = d3.geoPath(proj, g);
+          }
+          g.globalAlpha = alpha; g.fillStyle = e.col;
+          g.beginPath(); path(e.poly); g.fill();
+        } else {
+          // no outline in the atlas (Singapore): a soft disc around the office instead
+          if (path) { g.restore(); path = null; }
+          for (const c of e.cities) {
+            const x = sx(c.p), y = sy(c.p), r = 34 * mk;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            const gr = g.createRadialGradient(x, y, 0, x, y, r);
+            gr.addColorStop(0, e.col); gr.addColorStop(1, d3.color(e.col).copy({ opacity: 0 }).formatRgb());
+            g.globalAlpha = Math.min(1, alpha * 1.4); g.fillStyle = gr;
+            g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+          }
+        }
+      }
+      if (path) g.restore();
+      g.globalAlpha = 1;
     }
 
     // infection glow under infected agents
@@ -1292,8 +1413,25 @@
       : `Live run on ${(S.status && S.status.models.agent) || "Mistral"}. Every infection after patient zero is a real model reply that carried the payload on.`;
     const vnote = S.virus.live ? "" : ` ${S.virus.name} used its own harmless test payload; infection means an agent's reply carried that payload on.`;
     $("end-note").textContent = `${src}${vnote} ${ev.usage ? `${ev.usage.chat_calls} model calls.` : ""}`;
+    renderForecastVerdict();
     headline(`Outbreak over: ${Math.round(rate * 100)}% of agents infected`, true);
     setTimeout(() => { if (S.runEnded) $("end").classList.remove("hidden"); }, 1400 / Math.max(1, S.speed));
+  }
+
+  // "Timestral forecast called 45% on day 2 and 34% on day 5; actual 90% by day 14."
+  function renderForecastVerdict() {
+    const el = $("end-forecast");
+    const checks = [...S.fcChecks].sort((a, b) => a.made_at - b.made_at);
+    if (!checks.length) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+    const pctOf = (x) => `${Math.round(x * 100)}%`;
+    const calls = checks.map((c) => `<b>${pctOf(c.pred_attack_rate)}</b> on day ${c.made_at}`);
+    const said = calls.length > 1 ? `${calls.slice(0, -1).join(", ")} and ${calls[calls.length - 1]}` : calls[0];
+    const c0 = checks[checks.length - 1];
+    const detail = checks.map((c) => `day ${c.made_at}: off by ${Number(c.mae_agents).toFixed(1)} agents on average, ` +
+      `real curve inside the 80% band ${pctOf(c.coverage_80)} of the time`).join(" · ");
+    el.innerHTML = `Timestral forecast called ${said}; actual <b>${pctOf(c0.actual_attack_rate)}</b> by day ${c0.final_tick}.` +
+      `<small>${esc(detail)}. Model ${esc(c0.model)}, Mistral's time-series forecaster, run locally.</small>`;
+    el.classList.remove("hidden");
   }
 
   async function loadRuns(select) {
@@ -1393,7 +1531,8 @@
     $("legend").innerHTML = STATES.map((s) => `<li data-k="${s.key}" title="${esc(s.def)}"><i class="swatch" style="background:${s.color}"></i><span class="lab">${s.label}</span><span class="num">0</span></li>`).join("");
     $("mini-legend").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i>${s.label}</li>`).join("");
     $("defs").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i><span><b>${s.label}</b>: ${esc(s.def)}</span></li>`).join("") +
-      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
+      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>` +
+      `<li><i class="swatch" style="background:linear-gradient(90deg, ${COLOR.I}, ${COLOR.E}, ${COLOR.R})"></i><span><b>Coloured countries</b>: a country with agents takes the colour of its most serious state (infected, then exposed, recovered, susceptible, vaccinated), and flashes when the attack first lands there.</span></li>`;
   }
 
   function runMapCommand(transcript) {
@@ -1546,6 +1685,11 @@
       $("risk-toggle").classList.toggle("on", S.showRisk);
       if (S.showRisk) { openIntel(); document.querySelector('.tab[data-tab="risk"]').click(); }
     };
+    const openCurve = () => { openIntel(); document.querySelector('.tab[data-tab="curve"]').click(); };
+    $("mini-curve").onclick = openCurve;
+    $("mini-curve").onkeydown = (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); openCurve(); }
+    };
     $("close-intel").onclick = closeIntel;
     $("zoom-reset").onclick = () => zoomHome();
     // zoom about the pointer when there is one, so the buttons feel like the touchpad
@@ -1613,14 +1757,23 @@
     });
     addEventListener("resize", () => { resize(); drawCurve(); syncCamera(); });
     // Light/dark theme (theme.js): buttons in Setup, and a re-skin on every change.
+    const effectiveTheme = () => (window.ChonkTheme ? ChonkTheme.effective() : "dark");
     const markTheme = () => {
       const pref = window.ChonkTheme ? ChonkTheme.current() : "dark";
       for (const b of document.querySelectorAll("#theme-seg button")) {
         const on = b.dataset.themePref === pref;
         b.classList.toggle("on", on); b.setAttribute("aria-checked", on);
       }
+      // Quick toggle on the map: shows the theme a click switches to.
+      const dark = effectiveTheme() === "dark", btn = $("theme-toggle");
+      if (btn) {
+        btn.textContent = dark ? "☀ Light" : "☾ Dark";
+        btn.title = `Switch to ${dark ? "light" : "dark"} mode`;
+        btn.setAttribute("aria-label", btn.title);
+      }
     };
     for (const b of document.querySelectorAll("#theme-seg button")) b.onclick = () => window.ChonkTheme && ChonkTheme.set(b.dataset.themePref);
+    $("theme-toggle").onclick = () => window.ChonkTheme && ChonkTheme.set(effectiveTheme() === "dark" ? "light" : "dark");
     addEventListener("chonkvid-theme", () => { markTheme(); readTheme(); drawBase(); drawCurve(); });
     markTheme();
   }
@@ -1640,7 +1793,7 @@
     const topo = await (await fetch("/static/world/vendor/countries-110m.json")).json();
     const all = topojson.feature(topo, topo.objects.countries).features.filter((f) => f.properties.name !== "Antarctica");
     S.countries = all;
-    for (const c of all) { c.fill = landColor(c); c.centroid = d3.geoCentroid(c); }
+    for (const c of all) c.centroid = d3.geoCentroid(c);
     S.land = { type: "FeatureCollection", features: all };
     S.borders = topojson.mesh(topo, topo.objects.countries, (a, b) => a !== b);
     resize();
