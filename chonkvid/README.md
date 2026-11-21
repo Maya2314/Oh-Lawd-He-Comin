@@ -101,11 +101,23 @@ unaffected: it is always written by the Managed Agent (see "Built with").
 
 ```bash
 WHO_MODE=agent .venv/bin/python -m chonkvid serve    # or put it in .env
+WHO_MODE=session .venv/bin/python -m chonkvid serve  # Managed Agent, one session per outbreak
 ```
 
 - `WHO_MODE=chat` (default) keeps the original single-call path: nothing changes.
-- Any failure in the agent path emits a `sitrep_error` event and falls back to the
-  chat completion, so a live demo cannot be broken by it.
+- `WHO_MODE=session` runs the same role as a **Mistral Managed Agent** (`who_session.py`)
+  that holds **one session for the whole outbreak**: each report is a turn in the same
+  conversation, so a later report knows what the agent read earlier, the vaccine is
+  written by the agent that watched the epidemic, and the answer arrives typed
+  (`output_type=SitrepOut` / `VaccineOut`) instead of being parsed out of prose. It uses
+  the same four tools, declared once on the agent; the handlers read the tick's snapshot
+  through a `ContextVar`, because the SDK requires tool functions at module scope.
+- Any failure in either agent path emits a `sitrep_error` event and falls back to the
+  chat completion, so a live demo cannot be broken by it. A dead session is cancelled
+  rather than reused.
+- **Ask by voice**: each report carries a `🔊 Listen` button (`POST /api/speak`, Voxtral
+  TTS) and a `🎙 Ask` button (`POST /api/voice/ask`): record a question, Voxtral
+  transcribes it, the WHO answers in text, and Voxtral speaks the answer back.
 - Mock mode exercises the whole path with a scripted stand-in, so the dashboard works
   with no key. Those numbers are labelled MOCK.
 - `scripts/smoke_who_agent.py` starts the real server and prints the sitreps it emits.

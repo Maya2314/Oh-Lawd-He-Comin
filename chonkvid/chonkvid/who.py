@@ -168,6 +168,7 @@ class WhoView:
     vaccinated: set[int] = field(default_factory=set)
     patient_zero: int | None = None
     agent_model: str = ""
+    contacts_per_tick: int = 2          # reported by get_contact_ranking
     source: str = "live"
 
 
@@ -373,7 +374,7 @@ class WhoAgent:
         if name == "get_contact_ranking":
             limit = max(1, min(int(args.get("limit", 5) or 5), 20))
             ranked = sorted(view.contacts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
-            return {"contacts_per_tick": 2,
+            return {"contacts_per_tick": view.contacts_per_tick,
                     "ranking": [{"agent": a, "name": view.names.get(a, str(a)),
                                  "contacts": c} for a, c in ranked]}
         if name == "get_lineage":
@@ -467,7 +468,21 @@ def as_data_url(png: bytes) -> str:
 
 def make_who(s, llm):
     """Build the WHO agent from settings, or None for the plain chat path."""
-    if not getattr(s, "who_agent", False):
+    mode = getattr(s, "who_mode", "chat").strip()
+    if mode == "session":
+        # Session-scoped Managed Agent: one conversation across the outbreak, typed
+        # answers. Falls back to the tool-calling agent if the SDK is not installed.
+        try:
+            from .who_session import SessionWho, available as _session_available
+            if _session_available():
+                return SessionWho(llm, s.who_model,
+                                  max_iterations=max(2, s.who_rounds * 3),
+                                  full_context=(s.who_context != "sample"),
+                                  with_vision=s.who_vision)
+        except Exception:
+            pass
+        mode = "agent"
+    if mode != "agent":
         return None
     return WhoAgent(llm, s.who_model, max_rounds=s.who_rounds,
                     full_context=(s.who_context != "sample"),
