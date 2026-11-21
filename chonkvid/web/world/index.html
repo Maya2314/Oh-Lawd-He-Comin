@@ -44,6 +44,7 @@
 <nav class="side-btns">
   <button class="pill" id="open-intel" title="Charts, cases, briefings and setup">📊 Intel</button>
   <button class="pill on" id="risk-toggle" title="Show who is most likely to be hit, from past runs of this attack">🎯 Risk forecast</button>
+  <button class="pill on" id="net-toggle" aria-pressed="true" title="Network view: draw every contact and flash each exposure along it, like the lab dashboard. Off: flight arcs.">🕸 Network</button>
   <button class="pill" id="zoom-reset" title="Reset map zoom">⤢ Fit map</button>
   <a class="pill" href="/" title="The original numbers dashboard">🧪 Lab view</a>
 </nav>
@@ -69,6 +70,9 @@
 
   <section class="panel worldp" aria-label="World status">
     <div class="panel-tab">WORLD <span class="muted" id="pop">0 agents</span></div>
+    <canvas id="mini-curve" class="mini-curve" role="button" tabindex="0"
+            aria-label="Outbreak curve with the Timestral forecast. Open the full chart."
+            title="Outbreak curve with the Timestral forecast. Click for the full chart."></canvas>
     <div class="stack" id="stack" aria-hidden="true"></div>
     <ul class="legend" id="legend"></ul>
   </section>
@@ -194,6 +198,7 @@
       <div><div class="v" id="e-held">–</div><div class="k">vaccinated agents held</div></div>
       <div><div class="v" id="e-r">–</div><div class="k">observed R (cases per case)</div></div>
     </div>
+    <p class="end-forecast hidden" id="end-forecast"></p>
     <p class="end-note" id="end-note"></p>
     <div class="intro-actions">
       <button class="btn ghost" id="end-view">Keep looking at the map</button>
