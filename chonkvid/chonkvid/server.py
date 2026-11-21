@@ -54,6 +54,70 @@ def world(n: int = 40, seed: int = 0):
     return build_world(max(8, min(n, 120)), seed).to_json()
 
 
+@app.get("/api/world/chatter")
+def world_chatter(n: int = 40, seed: int = 0):
+    """Every contact link with the two spoken lines that hang off it (English).
+
+    The soundscape in the browser uses this as its model: one conversation per edge,
+    placed at the edge's midpoint, fetched lazily from /api/world/chatter/audio.
+    """
+    from .soundscape import chatter_index
+
+    return chatter_index(build_world(max(8, min(n, 120)), seed))
+
+
+@app.post("/api/world/chatter")
+def world_chatter_langs(payload: dict):
+    """Same index, but each link speaks the language of the office it sits in.
+
+    The front-end knows which city every agent was placed in, so it sends
+    {"n": 40, "seed": 0, "langs": {"12": "fr", ...}} and gets French chatter back for
+    the Paris agents without the server having to guess the layout.
+    """
+    from .soundscape import chatter_index
+
+    n = int(payload.get("n", 40) or 40)
+    seed = int(payload.get("seed", 0) or 0)
+    langs = payload.get("langs") or {}
+    if not isinstance(langs, dict):
+        raise HTTPException(400, "langs must be an object of {agent_id: language}")
+    return chatter_index(build_world(max(8, min(n, 120)), seed), langs)
+
+
+@app.get("/api/world/chatter/audio")
+async def world_chatter_audio(n: int = 40, seed: int = 0, s: int = 0, t: int = 0,
+                              who: str = "a", lang: str = "en"):
+    """Voxtral audio for one side of one contact link, in that office's language."""
+    from .soundscape import clip_for
+
+    w = build_world(max(8, min(n, 120)), seed)
+    try:
+        audio, mime = await clip_for(make_llm(settings()), w, s, t, who, lang)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # a TTS failure must not take the dashboard down
+        raise HTTPException(503, f"voice unavailable: {exc}") from exc
+    return Response(content=audio, media_type=mime,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.post("/api/world/chatter/prewarm")
+async def world_chatter_prewarm(payload: dict | None = None):
+    """Speak the busiest links ahead of a demo, so the first click is instant."""
+    from .soundscape import prewarm
+
+    payload = payload or {}
+    n = int(payload.get("n", 40) or 40)
+    seed = int(payload.get("seed", 0) or 0)
+    limit = int(payload.get("limit", 24) or 24)
+    w = build_world(max(8, min(n, 120)), seed)
+    try:
+        made = await prewarm(make_llm(settings()), w, max(1, min(limit, 80)), payload.get("langs"))
+    except Exception as exc:
+        raise HTTPException(503, f"prewarm failed: {exc}") from exc
+    return {"edges": made, "clips": len(made) * 2}
+
+
 @app.get("/api/risk")
 def risk_forecast(n: int = 40, seed: int = 0):
     """Per attack type: past-run history and each agent's forecast infection risk."""
