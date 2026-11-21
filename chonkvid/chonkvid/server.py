@@ -8,7 +8,7 @@ import os
 from dataclasses import asdict, fields
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -54,12 +54,117 @@ def world(n: int = 40, seed: int = 0):
     return build_world(max(8, min(n, 120)), seed).to_json()
 
 
+@app.get("/api/attacks")
+def attack_catalogue():
+    """The prompt-injection catalogue and, when measured, each attack's spread per contact."""
+    from . import attack_trials, attacks
+    latest = attack_trials.load() or {}
+    measured = latest.get("attacks", {})
+    out = []
+    for a in attacks.ATTACKS.values():
+        m = measured.get(a.id)
+        out.append({**a.summary(),
+                    "measured": None if not m else {
+                        "source": latest.get("source"), "model": m["model"],
+                        "k": m["spread"]["k"], "n": m["spread"]["n"], "p": m["spread"]["p"],
+                        "ci": m["spread"]["ci"], "control_k": m["control"]["k"],
+                        "control_n": m["control"]["n"], "effect_rate": m["effect_rate"]}})
+    return {"attacks": out}
+
+
+@app.get("/api/world/chatter")
+def world_chatter(n: int = 40, seed: int = 0):
+    """Every contact link with the two spoken lines that hang off it (English).
+
+    The soundscape in the browser uses this as its model: one conversation per edge,
+    placed at the edge's midpoint, fetched lazily from /api/world/chatter/audio.
+    """
+    from .soundscape import chatter_index
+
+    return chatter_index(build_world(max(8, min(n, 120)), seed))
+
+
+@app.post("/api/world/chatter")
+def world_chatter_langs(payload: dict):
+    """Same index, but each link speaks the language of the office it sits in.
+
+    The front-end knows which city every agent was placed in, so it sends
+    {"n": 40, "seed": 0, "langs": {"12": "fr", ...}} and gets French chatter back for
+    the Paris agents without the server having to guess the layout.
+    """
+    from .soundscape import chatter_index
+
+    n = int(payload.get("n", 40) or 40)
+    seed = int(payload.get("seed", 0) or 0)
+    langs = payload.get("langs") or {}
+    if not isinstance(langs, dict):
+        raise HTTPException(400, "langs must be an object of {agent_id: language}")
+    return chatter_index(build_world(max(8, min(n, 120)), seed), langs)
+
+
+@app.get("/api/world/chatter/audio")
+async def world_chatter_audio(n: int = 40, seed: int = 0, s: int = 0, t: int = 0,
+                              who: str = "a", lang: str = "en"):
+    """Voxtral audio for one side of one contact link, in that office's language."""
+    from .soundscape import clip_for
+
+    w = build_world(max(8, min(n, 120)), seed)
+    try:
+        audio, mime = await clip_for(make_llm(settings()), w, s, t, who, lang)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:  # a TTS failure must not take the dashboard down
+        raise HTTPException(503, f"voice unavailable: {exc}") from exc
+    return Response(content=audio, media_type=mime,
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+@app.post("/api/world/chatter/prewarm")
+async def world_chatter_prewarm(payload: dict | None = None):
+    """Speak the busiest links ahead of a demo, so the first click is instant."""
+    from .soundscape import prewarm
+
+    payload = payload or {}
+    n = int(payload.get("n", 40) or 40)
+    seed = int(payload.get("seed", 0) or 0)
+    limit = int(payload.get("limit", 24) or 24)
+    w = build_world(max(8, min(n, 120)), seed)
+    try:
+        made = await prewarm(make_llm(settings()), w, max(1, min(limit, 80)), payload.get("langs"))
+    except Exception as exc:
+        raise HTTPException(503, f"prewarm failed: {exc}") from exc
+    return {"edges": made, "clips": len(made) * 2}
+
+
 @app.get("/api/risk")
-def risk_forecast(n: int = 40, seed: int = 0):
-    """Per attack type: past-run history and each agent's forecast infection risk."""
+async def risk_forecast(n: int = 40, seed: int = 0,
+                        authorization: str | None = Header(None)):
+    """Per attack type: past-run history and each agent's forecast infection risk.
+
+    With a Supabase access token the history is the team's shared runs (every
+    completed run in the caller's projects, including runs mirrored from this
+    machine, so local files are not added on top). Without one, or when the server
+    runs with local persistence, it is this machine's recordings."""
     from . import risk
     w = build_world(max(8, min(n, 120)), seed).to_json()
-    return risk.forecast(w, risk.load_runs())
+    runs, history, note = risk.load_runs(), "local", ""
+    if authorization:
+        try:
+            store, projects = await _remote_scope(authorization)
+            shared = await risk.load_remote_runs(store, projects)
+            if shared:
+                runs, history = shared, "shared"
+            else:
+                note = "no completed shared runs yet; using this machine's runs"
+        except HTTPException as exc:
+            if exc.status_code == 401:
+                raise
+            note = f"shared history unavailable ({exc.detail}); using this machine's runs"
+        except PersistenceError:
+            note = "shared history unavailable; using this machine's runs"
+    out = risk.forecast(w, runs)
+    out["history"], out["history_note"] = history, note
+    return out
 
 
 async def dashboard_report(filename, kind, authorization):
@@ -318,6 +423,7 @@ async def ws_run(ws: WebSocket):
                     await fail_remote("remote create_run or start failed")
 
             async for ev in run_epidemic(llm, det, cfg, who_model=s.who_model,
+                                         vision_model=s.vision_model,
                                          agent_model=s.agent_model, who=make_who(s, llm)):
                 rec.write(ev)
                 if remote_id and persist_error is None:
@@ -378,6 +484,79 @@ async def ws_run(ws: WebSocket):
             pass
 
 
+@app.post("/api/voice/ask")
+async def voice_ask(payload: dict):
+    """A spoken question to the WHO, answered in text and in speech.
+
+    Body: {"audio_b64": <recorded mp3/webm>, "sitrep": "<optional latest report>"}.
+    Returns {"question", "answer", "voice_id", "audio_b64"}.
+    """
+    import base64
+
+    from .voice import speak, transcribe, VOICE_ID
+
+    raw = str(payload.get("audio_b64", "")).strip()
+    if not raw:
+        raise HTTPException(400, "audio_b64 required")
+    s = settings()
+    if s.mode != "live":
+        raise HTTPException(400, "Voxtral needs MISTRAL_API_KEY (mock mode has no audio)")
+    try:
+        audio = base64.b64decode(raw)
+    except Exception:
+        raise HTTPException(400, "audio_b64 is not valid base64")
+    llm = make_llm(s)
+    try:
+        question = (await transcribe(llm, audio)).strip()
+        if not question:
+            raise HTTPException(422, "could not hear a question in that audio")
+        latest = str(payload.get("sitrep", "")).strip()[:4000]
+        system = scenario.WHO_SYSTEM
+        if latest:
+            system += ("\n\nThe most recent situation report from this outbreak, "
+                       "which the question is probably about:\n" + latest)
+        answer = await llm.chat(s.who_model, [
+            {"role": "system", "content": system},
+            {"role": "user", "content": question},
+        ], temperature=0.2, max_tokens=400)
+        answer = str(answer).strip()
+        spoken = await speak(llm, answer[:1500])
+    finally:
+        await llm.aclose()
+    return {"question": question, "answer": answer, "voice_id": VOICE_ID,
+            "audio_b64": base64.b64encode(spoken).decode()}
+
+
+@app.post("/api/map-transcript")
+async def map_transcript(request: Request):
+    from .llm import LiveLLM
+    from .voice import transcribe
+
+    mime = request.headers.get("content-type", "").partition(";")[0]
+    extensions = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg"}
+    if mime not in extensions:
+        raise HTTPException(415, "Unsupported recording format")
+    s = settings()
+    if not s.api_key:
+        raise HTTPException(503, "Map voice control requires MISTRAL_API_KEY")
+    audio = bytearray()
+    async for chunk in request.stream():
+        if len(audio) + len(chunk) > 2_000_000:
+            raise HTTPException(413, "Recording too long")
+        audio.extend(chunk)
+    if not audio:
+        raise HTTPException(400, "Empty recording")
+    llm = LiveLLM(s)
+    try:
+        return {"text": await transcribe(llm, bytes(audio), "command." + extensions[mime], mime)}
+    except RuntimeError as exc:
+        raise HTTPException(502, "Voxtral could not transcribe that recording") from exc
+    finally:
+        await llm.aclose()
+
+
+
+
 @app.post("/api/speak")
 async def speak_endpoint(payload: dict):
     """WHO situation report read aloud by Voxtral TTS (voxtral-mini-tts-3-0)."""
@@ -387,9 +566,10 @@ async def speak_endpoint(payload: dict):
     if not text:
         raise HTTPException(400, "text required")
     s = settings()
-    if s.mode != "live":
-        raise HTTPException(400, "Voxtral needs MISTRAL_API_KEY (mock mode has no audio)")
-    llm = make_llm(s)
+    if not s.api_key:
+        raise HTTPException(400, "Voxtral needs MISTRAL_API_KEY")
+    from .llm import LiveLLM
+    llm = LiveLLM(s)
     try:
         audio = await speak(llm, text)
     finally:

@@ -48,6 +48,10 @@ class Settings:
         default_factory=lambda: os.environ.get("AGENT_MODEL", "ministral-8b-latest")
     )
     embed_model: str = field(default_factory=lambda: os.environ.get("EMBED_MODEL", "mistral-embed"))
+    # Agent model for image-borne attacks (Agent Smith): must accept image input.
+    vision_model: str = field(
+        default_factory=lambda: os.environ.get("AGENT_VISION_MODEL", "mistral-small-latest")
+    )
     who_model: str = field(
         default_factory=lambda: os.environ.get("WHO_MODEL", "mistral-large-4")
     )
@@ -64,6 +68,9 @@ class Settings:
     mock_p_base: float = field(default_factory=lambda: _f("MOCK_P_BASE", 0.55))
     # WHO agent: "chat" keeps the original single completion, "agent" turns on tools,
     # structured output, full-context reading and (optionally) the curve image.
+    # "chat" (default) keeps the original single completion; "agent" adds tools,
+    # structured output, full context and the curve image; "session" runs the same role
+    # as a Managed Agent holding one session for the whole outbreak.
     who_mode: str = field(default_factory=lambda: os.environ.get("WHO_MODE", "chat").strip())
     who_context: str = field(default_factory=lambda: os.environ.get("WHO_CONTEXT", "full").strip())
     who_vision: bool = field(
@@ -75,7 +82,7 @@ class Settings:
 
     @property
     def who_agent(self) -> bool:
-        return self.who_mode == "agent"
+        return self.who_mode in ("agent", "session")
 
     @property
     def mode(self) -> str:

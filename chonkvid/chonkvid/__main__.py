@@ -151,7 +151,8 @@ async def cmd_experiment(args) -> int:
             system, label = scenario.SAMPLE_SYSTEM, "sample support-agent prompt"
         out = await run_experiment(llm, s, n_agents=args.agents, seeds=args.seeds,
                                    trials_n=args.trials, k=args.k, ticks=args.ticks,
-                                   agent_system=system, system_label=label)
+                                   agent_system=system, system_label=label,
+                                   contacts_per_tick=args.contacts)
     finally:
         await llm.aclose()
     print()
@@ -193,6 +194,22 @@ async def cmd_test_prompt(args) -> int:
     return 0
 
 
+async def cmd_attacks(args) -> int:
+    """One-hop spread trials for every catalogue prompt injection, with a control arm."""
+    from .attack_trials import measure_attacks, save, table
+    s = settings()
+    system = Path(args.system_file).read_text() if args.system_file else None
+    llm = make_llm(s)
+    try:
+        out = await measure_attacks(llm, s, n=args.n, ids=args.only or None, system=system)
+    finally:
+        await llm.aclose()
+    save(out)
+    print(table(out))
+    print("saved results/attacks-latest.json (served at /api/attacks)")
+    return 0
+
+
 async def cmd_voice_trial(args) -> int:
     """Voxtral voice hop: text vs voice one-hop spread on the same prompt."""
     import json
@@ -224,6 +241,27 @@ async def cmd_voice_trial(args) -> int:
     return 0
 
 
+async def cmd_soundscape(args) -> int:
+    """Pre-speak the world map's chatter links so the first click is instant."""
+    from .llm import make_llm
+    from .soundscape import SOUND_DIR, chatter_index, prewarm
+    from .world import build_world
+
+    s = settings()
+    w = build_world(max(8, min(args.n, 120)), args.seed)
+    idx = chatter_index(w)
+    llm = make_llm(s)
+    try:
+        made = await prewarm(llm, w, limit=args.limit)
+    finally:
+        await llm.aclose()
+    print(f"[{s.mode}] {len(idx['edges'])} contact links, {len(made)} prewarmed, "
+          f"clips in {SOUND_DIR}")
+    for e in idx["edges"][:3]:
+        print(f"  {e['key']} {e['names'][0]}: {e['lines']['a'][:70]}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="chonkvid")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -242,6 +280,11 @@ def main(argv=None) -> int:
         e.add_argument("--trials", type=int, default=30)
         e.add_argument("--k", type=int, default=8)
         e.add_argument("--ticks", type=int, default=12)
+        # Contacts per agent per tick sets the epidemic regime: at a given payload
+        # spread probability this is what decides whether R lands above 1 (outbreak,
+        # policies can differ) or below it (everything looks identical).
+        e.add_argument("--contacts", type=int, default=2,
+                       help="contacts per agent per tick (default 2)")
         e.add_argument("--mock-seed", type=int, default=0)
         e.add_argument("--sample-prompt", action="store_true",
                        help="run on the bundled support-agent prompt (scenario.SAMPLE_SYSTEM)")
@@ -261,7 +304,15 @@ def main(argv=None) -> int:
                         help="Voxtral: does the payload survive a spoken hop (TTS -> transcribe)?")
     vt.add_argument("-n", type=int, default=20)
     vt.add_argument("--system-file", help="system prompt to test (default: sample support prompt)")
+    sc = sub.add_parser("soundscape", help="pre-speak the world map's chatter (Voxtral TTS) so demos never wait")
+    sc.add_argument("-n", type=int, default=40, help="agents in the world (default 40)")
+    sc.add_argument("--seed", type=int, default=0)
+    sc.add_argument("--limit", type=int, default=24, help="busiest agents to speak for (default 24)")
     sub.add_parser("mcp", help="run the ChonkVid MCP server on stdio (for Mistral Vibe)")
+    at = sub.add_parser("attacks", help="measure spread per contact for every catalogue attack")
+    at.add_argument("-n", type=int, default=20)
+    at.add_argument("--only", nargs="*", help="attack ids (default: all)")
+    at.add_argument("--system-file", help="measure against this system prompt instead")
     args = p.parse_args(argv)
     if args.cmd == "mcp":
         from .mcp_server import main as mcp_main
@@ -286,7 +337,8 @@ def main(argv=None) -> int:
     if args.cmd == "db-check":
         return cmd_db_check(args)
     fn = {"check": cmd_check, "probe": cmd_probe, "experiment": cmd_experiment,
-          "test-prompt": cmd_test_prompt, "voice-trial": cmd_voice_trial}[args.cmd]
+          "test-prompt": cmd_test_prompt, "voice-trial": cmd_voice_trial,
+          "attacks": cmd_attacks, "soundscape": cmd_soundscape}[args.cmd]
     return asyncio.run(fn(args))
 
 

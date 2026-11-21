@@ -163,6 +163,53 @@ async function speakText(text, btn) {
   } catch (e) { btn.title = String(e); }
   btn.disabled = false; btn.textContent = label;
 }
+// A spoken question about the latest sitrep: record, transcribe (Voxtral), answer (WHO),
+// speak the answer (Voxtral). Server: POST /api/voice/ask.
+async function askByVoice(sitrepText, btn) {
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    btn.title = "this browser cannot record audio"; return;
+  }
+  const label = btn.textContent;
+  let stream, recorder;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const chunks = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+    const stopped = new Promise((r) => { recorder.onstop = r; });
+    recorder.start();
+    btn.textContent = "… listening (click to stop)";
+    const stop = () => { if (recorder.state !== "inactive") recorder.stop(); };
+    btn.onclick = stop;
+    setTimeout(stop, 15000);
+    await stopped;
+    btn.onclick = null;
+    stream.getTracks().forEach((t) => t.stop());
+    btn.textContent = "… transcribing";
+    const blob = new Blob(chunks, {type: chunks[0] ? chunks[0].type : "audio/webm"});
+    const b64 = await new Promise((resolve) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(String(fr.result).split(",")[1] || "");
+      fr.readAsDataURL(blob);
+    });
+    btn.textContent = "… asking the WHO";
+    const r = await fetch("/api/voice/ask", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({audio_b64: b64, sitrep: sitrepText || ""}),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const out = await r.json();
+    addMsg("who-feed", "sitrep", `You asked (heard as): ${out.question}`, out.answer);
+    const bytes = Uint8Array.from(atob(out.audio_b64), (c) => c.charCodeAt(0));
+    await new Audio(URL.createObjectURL(new Blob([bytes], {type: "audio/mpeg"}))).play();
+  } catch (e) {
+    btn.title = String(e);
+  } finally {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    btn.textContent = label;
+    btn.onclick = () => askByVoice(sitrepText, btn);
+  }
+}
 function filterTicker(id) {
   tickerFilter = tickerFilter === id ? null : id;
   $("sel").textContent = tickerFilter == null ? "" : `showing ${names[id]} · click again to clear`;
@@ -211,6 +258,11 @@ function handle(ev) {
       b.textContent = "🔊 Listen (Voxtral)"; b.className = "listen";
       b.onclick = () => speakText(ev.text, b);
       $("who-feed").firstChild.appendChild(b);
+      const ask = document.createElement("button");
+      ask.textContent = "🎙 Ask (Voxtral)"; ask.className = "listen";
+      ask.title = "Hold a question about this report: it is transcribed, answered, and spoken back";
+      ask.onclick = () => askByVoice(ev.text, ask);
+      $("who-feed").firstChild.appendChild(ask);
       break;
     }
     case "end": {
@@ -419,6 +471,13 @@ async function init() {
   $("byo-run").onclick = runPromptTest; $("byo-epi").onclick = runPromptEpidemic;
   for (const id of ["n", "seed"]) $(id).onchange = async () => drawWorld(await (await fetch(`/api/world?n=${$("n").value}&seed=${$("seed").value}`)).json());
   matchMedia("(prefers-color-scheme: light)").addEventListener("change", () => { C = COLORS(); });
+  // Light/dark switch (theme.js): System -> Light -> Dark, shared with the world map.
+  const NEXT = { system: "light", light: "dark", dark: "system" };
+  const NAME = { system: "System", light: "Light", dark: "Dark" };
+  const showTheme = () => { if (window.ChonkTheme && $("theme-label")) $("theme-label").textContent = NAME[ChonkTheme.current()] || "System"; };
+  if ($("theme-toggle")) $("theme-toggle").onclick = () => window.ChonkTheme && ChonkTheme.set(NEXT[ChonkTheme.current()] || "light");
+  addEventListener("chonkvid-theme", () => { C = COLORS(); showTheme(); });
+  showTheme();
 }
 // ---------------------------------------------------------------- shell chrome
 // #err is a toast: click to dismiss, auto-hides 7s after it was last shown.

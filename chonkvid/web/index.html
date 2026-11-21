@@ -8,7 +8,8 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 7' shape-rendering='crispEdges'%3E%3Cg fill='%23f2b134'%3E%3Crect x='0' y='0' width='1' height='1'/%3E%3Crect x='7' y='0' width='1' height='1'/%3E%3Crect x='0' y='1' width='2' height='1'/%3E%3Crect x='6' y='1' width='2' height='1'/%3E%3C/g%3E%3Crect fill='%23e8743b' x='0' y='2' width='8' height='1'/%3E%3Cg fill='%23d4463a'%3E%3Crect x='0' y='3' width='1' height='1'/%3E%3Crect x='2' y='3' width='4' height='1'/%3E%3Crect x='7' y='3' width='1' height='1'/%3E%3Crect x='0' y='4' width='8' height='1'/%3E%3C/g%3E%3Cg fill='%23a52a48'%3E%3Crect x='0' y='5' width='3' height='1'/%3E%3Crect x='5' y='5' width='3' height='1'/%3E%3Crect x='1' y='6' width='6' height='1'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Inter+Tight:wght@500;600&family=Space+Mono:wght@400;700&display=swap">
+<script src="/static/theme.js"></script>
 <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
@@ -49,7 +50,8 @@
   <div class="spacer"></div>
   <div class="cell env"><div id="mode" class="mode">…</div></div>
   <a class="cell link" href="/world"><svg><use href="#i-globe"/></svg><span>World view</span></a>
-  <div class="cell cta-cell"><a class="btn accent" href="#simulation">Run simulation</a></div>
+  <button class="cell theme-cell" id="theme-toggle" type="button" title="Colour theme: click to switch">◐ <span id="theme-label">System</span></button>
+  <a class="cell cta" href="#simulation">Run simulation</a>
 </header>
 
 <main class="frame">

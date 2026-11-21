@@ -103,7 +103,7 @@ def _agg(rows: list[dict]) -> dict:
 async def run_experiment(llm, s: Settings, n_agents: int = 40, seeds: int = 3,
                          trials_n: int = 30, k: int = 8, ticks: int = 12,
                          agent_system: str = "", system_label: str = "default work prompt",
-                         log=print) -> dict:
+                         contacts_per_tick: int = 2, log=print) -> dict:
     """agent_system: the system prompt under test ("" = the default work prompt).
     When set, the default prompt is also measured (trials + no-intervention
     epidemics) as the comparison arm."""
@@ -115,7 +115,8 @@ async def run_experiment(llm, s: Settings, n_agents: int = 40, seeds: int = 3,
                  "who_mode": s.who_mode,
                  "threshold": s.threshold, "created": time.strftime("%Y-%m-%d %H:%M:%S"),
                  "params": {"n_agents": n_agents, "seeds": seeds, "trials_n": trials_n,
-                            "k": k, "ticks": ticks},
+                            "k": k, "ticks": ticks,
+                            "contacts_per_tick": contacts_per_tick},
                  "system_label": system_label, "agent_system": agent_system}
 
     log(f"[{llm.source}] one-hop trials, n={trials_n} per arm")
@@ -136,7 +137,8 @@ async def run_experiment(llm, s: Settings, n_agents: int = 40, seeds: int = 3,
     for key, t in out["trials"].items():
         log(f"  {key:9s} {t['k']}/{t['n']}  p={t['p']:.2f}  CI [{t['ci'][0]:.2f}, {t['ci'][1]:.2f}]")
 
-    base_cfg = EpidemicConfig(n=n_agents, ticks=ticks, k=k, agent_system=agent_system)
+    base_cfg = EpidemicConfig(n=n_agents, ticks=ticks, k=k, agent_system=agent_system,
+                              contacts_per_tick=contacts_per_tick)
     runs: dict[str, list[dict]] = {"none": [], "random": [], "targeted": [], "who": []}
     if agent_system:
         runs["none_default"] = []

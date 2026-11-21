@@ -1,6 +1,7 @@
 """Attack-risk forecast from recorded runs.
 
-Every recorded run (runs/*.jsonl, the recordings /api/runs lists) says which
+Every recorded run (runs/*.jsonl on this machine, or the team's shared runs in
+Supabase when the caller sends an access token) says which
 attack was released (config.label), what the contact network looked like, who was
 vaccinated and who got infected. This module turns that history into a forecast:
 for a given attack type, how likely is each agent in a world to be infected if that
@@ -118,6 +119,21 @@ def load_runs(limit: int = MAX_RUNS, runs_dir: Path | None = None) -> list[tuple
         except (OSError, json.JSONDecodeError):
             continue
         out.append((p.name, events))
+    return out
+
+
+async def load_remote_runs(store, project_ids: list[str],
+                           limit: int = 100) -> list[tuple[str, list[dict]]]:
+    """Completed runs from the shared Supabase store (persistence.SupabaseStore),
+    limited to the caller's projects, newest first."""
+    rows = await store.list_runs(limit=limit, project_ids=project_ids)
+    out: list[tuple[str, list[dict]]] = []
+    for r in rows:
+        if getattr(r, "status", "") != "completed":
+            continue
+        events = await store.get_run_events(r.run_id)
+        if events:
+            out.append((str(r.run_id), events))
     return out
 
 

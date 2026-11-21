@@ -33,7 +33,7 @@
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0d0d17; --panel: #151524; --panel-2: #1b1b2e; --panel-3: #23233a;
     --line: #26263b; --line-2: #36364f;
     --text: #f2f0ea; --text-2: #c9c8c0; --muted: #8b8a99;
@@ -41,6 +41,14 @@
     --S: #4a4a5e; --R: #34c472; --V: #5b8def; --venue: #a78bfa; --good: #34c472; --bad: #ec6a5c;
     color-scheme: dark;
   }
+}
+:root[data-theme="dark"] {
+    --bg: #0d0d17; --panel: #151524; --panel-2: #1b1b2e; --panel-3: #23233a;
+    --line: #26263b; --line-2: #36364f;
+    --text: #f5f4ef; --text-2: #c9c8c0; --muted: #8b8a99;
+    --ink: #f5f4ef; --ink-text: #0d0d17;
+    --S: #4a4a5e; --R: #5b8def; --V: #34c472; --venue: #a78bfa; --good: #34c472; --bad: #ff5229;
+    color-scheme: dark;
 }
 
 /* ---------------------------------------------------------------- base */
@@ -351,3 +359,8 @@ svg .flash { stroke-width: .012; stroke-linecap: round; animation: fade 1.1s for
   .pixcurve .col { animation: none; }
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* theme switch in the top bar (theme.js) */
+button.cell.theme-cell { background: none; border-top: 0; border-bottom: 0; border-left: 0; cursor: pointer;
+  font: inherit; font-size: 13.5px; }
+button.cell.theme-cell:hover { background: var(--panel-2); color: var(--text); }
