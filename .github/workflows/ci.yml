@@ -23,7 +23,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        # 3.11 is out on purpose: mistralai-agents (the Managed Agent SDK) requires >=3.12,
+        # so requirements.txt cannot install there at all
+        python: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -85,6 +87,7 @@ jobs:
           for page in base.rglob("*.html"):
               html = page.read_text()
               for src in re.findall(r'src="(/static/[^"]+)"', html):
+                  src = src.split("?")[0].split("#")[0]   # strip ?v=8 cache-busters
                   target = base / src[len("/static/"):]
                   if not target.exists():
                       missing.append(f"{page}: {src}")
