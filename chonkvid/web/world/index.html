@@ -43,6 +43,7 @@
 </header>
 
 <nav class="side-btns">
+  <button class="pill" id="talk-map" aria-keyshortcuts="V" title="Hold V to speak and release to send, or click to record">Talk to map · hold V</button>
   <button class="pill" id="open-intel" title="Charts, cases, briefings and setup">📊 Intel</button>
   <button class="pill on" id="risk-toggle" title="Show who is most likely to be hit, from past runs of this attack">🎯 Risk forecast</button>
   <button class="pill" id="zoom-reset" title="Reset map zoom">⤢ Fit map</button>
@@ -109,7 +110,24 @@
     </div>
   </div>
 
-  <div class="tabpane" data-pane="risk" id="risk-pane"></div>
+  <div class="tabpane" data-pane="risk">
+    <section class="risk-briefing" aria-labelledby="briefing-title">
+      <h4 id="briefing-title">WHO briefing</h4>
+      <div class="briefing-controls">
+        <label for="briefing-question">Question</label>
+        <select id="briefing-question">
+          <option value="outlook">Where should I look first?</option>
+          <option value="defense">How did hardened agents fare?</option>
+        </select>
+        <label for="briefing-office">Office</label>
+        <select id="briefing-office"><option value="">Fleet overview</option></select>
+        <button type="button" id="briefing-listen" class="pill" disabled>Listen to briefing</button>
+      </div>
+      <p id="briefing-transcript" class="pane-note"></p>
+      <p id="briefing-status" class="pane-note" role="status"></p>
+    </section>
+    <div id="risk-pane"></div>
+  </div>
 
   <div class="tabpane" data-pane="cases">
     <div class="pane-note" id="case-filter">Every infection and every resisted exposure, newest first. Click an agent on the map to filter.</div>
@@ -220,6 +238,6 @@
 <script src="/static/world/vendor/d3.min.js"></script>
 <script src="/static/world/vendor/topojson-client.min.js"></script>
 <script src="/static/world/viruses.js"></script>
-<script src="/static/world/world.js"></script>
+<script src="/static/world/world.js?v=7"></script>
 </body>
 </html>

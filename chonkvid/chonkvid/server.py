@@ -8,7 +8,7 @@ import os
 from dataclasses import asdict, fields
 from uuid import UUID, uuid4
 
-from fastapi import FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Header, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -463,6 +463,34 @@ async def voice_ask(payload: dict):
             "audio_b64": base64.b64encode(spoken).decode()}
 
 
+@app.post("/api/map-transcript")
+async def map_transcript(request: Request):
+    from .llm import LiveLLM
+    from .voice import transcribe
+
+    mime = request.headers.get("content-type", "").partition(";")[0]
+    extensions = {"audio/webm": "webm", "audio/mp4": "mp4", "audio/ogg": "ogg"}
+    if mime not in extensions:
+        raise HTTPException(415, "Unsupported recording format")
+    s = settings()
+    if not s.api_key:
+        raise HTTPException(503, "Map voice control requires MISTRAL_API_KEY")
+    audio = bytearray()
+    async for chunk in request.stream():
+        if len(audio) + len(chunk) > 2_000_000:
+            raise HTTPException(413, "Recording too long")
+        audio.extend(chunk)
+    if not audio:
+        raise HTTPException(400, "Empty recording")
+    llm = LiveLLM(s)
+    try:
+        return {"text": await transcribe(llm, bytes(audio), "command." + extensions[mime], mime)}
+    except RuntimeError as exc:
+        raise HTTPException(502, "Voxtral could not transcribe that recording") from exc
+    finally:
+        await llm.aclose()
+
+
 @app.post("/api/speak")
 async def speak_endpoint(payload: dict):
     """WHO situation report read aloud by Voxtral TTS (voxtral-mini-tts-3-0)."""
@@ -472,9 +500,10 @@ async def speak_endpoint(payload: dict):
     if not text:
         raise HTTPException(400, "text required")
     s = settings()
-    if s.mode != "live":
-        raise HTTPException(400, "Voxtral needs MISTRAL_API_KEY (mock mode has no audio)")
-    llm = make_llm(s)
+    if not s.api_key:
+        raise HTTPException(400, "Voxtral needs MISTRAL_API_KEY")
+    from .llm import LiveLLM
+    llm = LiveLLM(s)
     try:
         audio = await speak(llm, text)
     finally:

@@ -376,6 +376,11 @@ body.picking #fx { cursor: crosshair; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.risk-briefing { margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid currentColor; }
+.briefing-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+.briefing-controls select { max-width: 100%; }
+#briefing-status:empty { display: none; }
+
 
 .theme-seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .theme-seg button {

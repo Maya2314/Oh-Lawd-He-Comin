@@ -418,6 +418,177 @@
   const riskInfo = () => (S.risk && S.risk.attacks && S.risk.attacks[S.virus.id]) || null;
   const riskFor = (id) => { const r = riskInfo(); return r && r.agents[id] ? r.agents[id].risk : null; };
   const pct = (x) => (x == null ? "–" : Math.round(x * 100) + "%");
+  let briefingRequest = null;
+  let briefingAudio = null;
+  const briefingClips = new Map();
+  let briefingUrl = null;
+  let briefingUtterance = null;
+  let briefingSpeechTimer = null;
+  let briefingReplay = null;
+  let playingReplay = false;
+
+  function stopBriefing() {
+    clearTimeout(briefingSpeechTimer);
+    briefingSpeechTimer = null;
+    if (briefingUtterance) {
+      briefingUtterance = null;
+      window.speechSynthesis.cancel();
+    }
+    briefingRequest?.abort();
+    briefingRequest = null;
+    briefingAudio?.pause();
+    briefingAudio = null;
+    if (briefingUrl) URL.revokeObjectURL(briefingUrl);
+    briefingUrl = null;
+    $("briefing-listen").textContent = "Listen to briefing";
+    $("briefing-status").textContent = "";
+  }
+
+  function renderBriefing(r = null, offices = []) {
+    const select = $("briefing-office");
+    const selected = select.value;
+    select.replaceChildren(new Option("Fleet overview", ""), ...offices.map(
+      (office) => new Option(officeLabel(office.c), officeLabel(office.c))
+    ));
+    const office = offices.find((entry) => officeLabel(entry.c) === selected);
+    if (office) select.value = selected;
+    const sentences = [];
+    if (r) {
+      const source = r.source === "mock" ? "mock" : r.source === "live" ? "live" : "recorded";
+      const basis = `${r.runs} ${source} simulation ${r.runs === 1 ? "run" : "runs"}`;
+      const defense = $("briefing-question").value === "defense";
+      select.disabled = defense;
+      if (defense) {
+        sentences.push(`Across the fleet, here is what happened during ${basis} of ${S.virus.name}.`);
+        if (r.vaccinated?.n && r.unvaccinated?.n) {
+          sentences.push(
+            `Among hardened agents, ${r.vaccinated.k} out of ${r.vaccinated.n} were infected. That's ${pct(r.vaccinated.rate)}.`,
+            `Among agents without hardening, it was ${pct(r.unvaccinated.rate)}.`,
+            "These groups may have had different exposure. Compare runs at the same dose to investigate the effect of hardening."
+          );
+        } else {
+          sentences.push("The recordings need observations from both hardened and unhardened agents before we can compare them.");
+        }
+      } else if (office) {
+        const fleetSize = offices.reduce((total, entry) => total + entry.n, 0);
+        const fleetMean = offices.reduce((total, entry) => total + entry.mean * entry.n, 0) / fleetSize;
+        const difference = Math.round(office.mean * 100) - Math.round(fleetMean * 100);
+        sentences.push(
+          `${officeLabel(office.c)} office. ${office.n} simulated ${office.n === 1 ? "agent" : "agents"}.`,
+          `The estimated average risk is ${pct(office.mean)}.`,
+          difference ? `That's ${Math.abs(difference)} percentage ${Math.abs(difference) === 1 ? "point" : "points"} ${difference > 0 ? "above" : "below"} the fleet forecast.` : "That matches the fleet forecast to the nearest percentage point.",
+          `This estimate comes from ${basis} of ${S.virus.name}.`
+        );
+      } else {
+        sentences.push(
+          `Fleet overview for ${S.virus.name}.`,
+          `On average, ${pct(r.attack_rate_mean)} of simulated agents were infected.`,
+          `That figure comes from ${basis}.`
+        );
+        if (offices.length) {
+          const leaders = offices.filter((entry) => pct(entry.mean) === pct(offices[0].mean));
+          if (leaders.length === 1) sentences.push(`Look first at ${officeLabel(leaders[0].c)}. Its forecast is the highest, at ${pct(leaders[0].mean)}.`);
+          else sentences.push(`${leaders.length} offices share the highest rounded forecast, at ${pct(leaders[0].mean)}.`);
+        }
+      }
+    } else {
+      select.disabled = true;
+      sentences.push(`No recorded forecast history for ${S.virus.name} yet.`);
+    }
+    if (briefingReplay) {
+      const { summary, source } = briefingReplay;
+      const kind = source === "mock" ? "mock " : source === "live" ? "live " : "";
+      sentences.push(`Fleet-wide result from the ${kind}replay. Infections peaked at tick ${summary.peak_tick}.`);
+    }
+    const transcript = $("briefing-transcript");
+    const nextText = sentences.join("\n\n");
+    if (transcript.textContent !== nextText) stopBriefing();
+    transcript.textContent = nextText;
+    $("briefing-listen").disabled = !nextText;
+  }
+
+  async function listenToBriefing(spokenText) {
+    const text = typeof spokenText === "string" ? spokenText : $("briefing-transcript").textContent;
+    if (briefingAudio || briefingRequest || briefingUtterance) {
+      stopBriefing();
+      return;
+    }
+    if (S.status?.key === false) {
+      if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) {
+        $("briefing-status").textContent = "This browser has no speech playback in mock mode.";
+        return;
+      }
+      const utterance = new window.SpeechSynthesisUtterance(text);
+      briefingUtterance = utterance;
+      utterance.lang = document.documentElement.lang || "en";
+      utterance.rate = 0.9;
+      const speechUnavailable = () => {
+        if (briefingUtterance !== utterance) return;
+        stopBriefing();
+        $("briefing-status").textContent = "Browser speech is unavailable. The transcript is above. Voxtral requires a Mistral API key.";
+      };
+      utterance.onstart = () => {
+        if (briefingUtterance !== utterance) return;
+        clearTimeout(briefingSpeechTimer);
+        $("briefing-status").textContent = "Playing browser voice in mock mode.";
+        $("briefing-listen").textContent = "Stop briefing";
+      };
+      utterance.onend = () => { if (briefingUtterance === utterance) stopBriefing(); };
+      utterance.onerror = speechUnavailable;
+      $("briefing-status").textContent = "Waiting for the browser voice…";
+      $("briefing-listen").textContent = "Cancel audio";
+      briefingSpeechTimer = setTimeout(speechUnavailable, 4000);
+      try {
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        speechUnavailable();
+      }
+      return;
+    }
+    const request = new AbortController();
+    briefingRequest = request;
+    $("briefing-listen").textContent = "Cancel audio";
+    $("briefing-status").textContent = "Preparing Voxtral audio…";
+    try {
+      let blob = briefingClips.get(text);
+      if (!blob) {
+        const response = await fetch("/api/speak", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+          signal: request.signal,
+        });
+        if (!response.ok) throw new Error("Speech request failed");
+        blob = await response.blob();
+        if (request.signal.aborted) return;
+        if (briefingClips.size >= 16) briefingClips.delete(briefingClips.keys().next().value);
+        briefingClips.set(text, blob);
+      }
+      briefingUrl = URL.createObjectURL(blob);
+      const audio = new Audio(briefingUrl);
+      audio.playbackRate = 0.9;
+      briefingAudio = audio;
+      audio.onended = () => { if (briefingAudio === audio) stopBriefing(); };
+      audio.onerror = () => {
+        if (briefingAudio === audio) {
+          briefingClips.delete(text);
+          showBriefingError();
+        }
+      };
+      await audio.play();
+      if (request.signal.aborted) return;
+      briefingRequest = null;
+      $("briefing-listen").textContent = "Stop briefing";
+      $("briefing-status").textContent = "";
+    } catch {
+      if (!request.signal.aborted) showBriefingError();
+    }
+  }
+
+  function showBriefingError() {
+    stopBriefing();
+    $("briefing-status").textContent = "Could not play Voxtral audio. Try again or read the transcript above.";
+  }
   function riskOrder() {
     return [...S.agents].sort((a, b) => (riskFor(b.id) ?? 0) - (riskFor(a.id) ?? 0) || b.degree - a.degree || a.id - b.id).map((a) => a.id);
   }
@@ -442,6 +613,7 @@
     }
     if (!pane) return;
     if (!r) {
+      renderBriefing();
       pane.innerHTML = `<h4>${esc(v.name)}</h4><p class="pane-note">No recorded runs of this attack yet, so there is nothing to forecast from. Release it once and the forecast builds from every run after that.</p>`;
       return;
     }
@@ -449,6 +621,7 @@
       const rs = c.agents.map((a) => riskFor(a.id) ?? 0);
       return { c, mean: rs.reduce((x, y) => x + y, 0) / rs.length, n: rs.length };
     }).sort((a, b) => b.mean - a.mean);
+    renderBriefing(r, byOffice);
     const top = riskOrder().slice(0, 8).map((id) => S.byId.get(id));
     const src = r.source === "live" ? "live runs" : r.source === "mock" ? "MOCK runs (rehearsal only)" : `${r.source} runs`;
     pane.innerHTML = `
@@ -458,13 +631,25 @@
       ${r.vaccinated ? ` Vaccinated agents were infected ${r.vaccinated.k}/${r.vaccinated.n} times (${pct(r.vaccinated.rate)}), against ${pct(r.unvaccinated.rate)} unvaccinated.` : ""}</p>
       <div class="risk-legend"><span>Low</span><i></i><span>High</span><span class="muted">ring size and heat on the map = forecast risk</span></div>
       <table class="rtable"><tr><th>Office</th><th>Agents</th><th class="num">Avg risk</th></tr>
-        ${byOffice.map((o) => `<tr><td>${esc(officeLabel(o.c))}</td><td>${o.n}</td><td class="num">${riskBar(o.mean)}</td></tr>`).join("")}</table>
+        ${byOffice.map((o) => `<tr><td><button type="button" class="pill" data-briefing-office="${esc(officeLabel(o.c))}">${esc(officeLabel(o.c))}</button></td><td>${o.n}</td><td class="num">${riskBar(o.mean)}</td></tr>`).join("")}</table>
       <table class="rtable"><tr><th>Most at risk</th><th>Role</th><th class="num">Risk</th></tr>
         ${top.map((a) => `<tr data-agent="${a.id}"><td>${esc(a.name)} <span class="muted">${esc(a.city.name)}</span></td><td>${esc(a.role.replace(/^an? /, ""))}</td><td class="num">${riskBar(riskFor(a.id))}</td></tr>`).join("")}</table>
       ${r.roles.length ? `<table class="rtable"><tr><th>Role</th><th>Past exposures</th><th class="num">Risk</th></tr>
         ${r.roles.slice(0, 6).map((x) => `<tr><td>${esc(x.role.replace(/^an? /, ""))}</td><td>${x.k}/${x.n} infected</td><td class="num">${riskBar(x.rate)}</td></tr>`).join("")}</table>` : ""}
       <p class="pane-note">How it works: each agent gets the infection rate of past agents with the same profile (contact tier and group-chat membership) under this attack, pulled toward the attack's overall rate when a profile has few runs behind it. Patient zero is not counted. Live runs replace mock runs as soon as there are any.</p>`;
     for (const tr of pane.querySelectorAll("tr[data-agent]")) tr.onclick = () => { const a = S.byId.get(+tr.dataset.agent); zoomTo(a.lon, a.lat, 3); filterCases(a.id); };
+    for (const button of pane.querySelectorAll("[data-briefing-office]")) {
+      button.onclick = () => {
+        stopBriefing();
+        $("briefing-question").value = "outlook";
+        $("briefing-office").value = button.dataset.briefingOffice;
+        renderBriefing(r, byOffice);
+      };
+    }
+    $("briefing-office").onchange = () => {
+      stopBriefing();
+      renderBriefing(r, byOffice);
+    };
   }
   const riskBar = (x) => `<span class="rbar"><span style="width:${Math.round((x || 0) * 100)}%;background:${riskColor(x || 0)}"></span></span>${pct(x)}`;
   function riskColor(x) { return d3.interpolateRgb("#ffd21f", "#ff2a2a")(Math.min(1, Math.max(0, x))); }
@@ -967,6 +1152,10 @@
   }
 
   function stopRun(silent) {
+    stopBriefing();
+    playingReplay = false;
+    briefingReplay = null;
+    renderRisk();
     if (S.ws) { const w = S.ws; S.ws = null; try { w.close(); } catch (e) { /* already closed */ } }
     clearTimeout(S.timer); S.timer = null; S.queue = [];
     S.running = false; setRunningUI(false);
@@ -983,6 +1172,10 @@
   function showEnd(ev) {
     S.running = false; S.runEnded = true; setRunningUI(false);
     const s = ev.summary, rate = s.attack_rate;
+    if (playingReplay) {
+      briefingReplay = ev;
+      renderRisk();
+    }
     $("end-kicker").textContent = `${S.virus.name.toUpperCase()} · ${policyName(s.policy).toUpperCase()}`;
     $("end-title").textContent = rate >= 0.6 ? "Global pandemic" : rate >= 0.25 ? "Major outbreak" : rate > 0 ? "Outbreak contained" : "It never took off";
     $("end-title").style.color = rate >= 0.6 ? "#ff4a4a" : rate >= 0.25 ? "#ff9a3d" : "#4fe07a";
@@ -1014,6 +1207,7 @@
     try {
       const events = await (await fetch("/api/runs/" + encodeURIComponent(id))).json();
       $("intro").classList.add("hidden"); $("end").classList.add("hidden"); closeIntel();
+      playingReplay = true;
       S.running = true; setRunningUI(true);
       if (S.speed === 0) setSpeed(S.lastSpeed || 1);
       for (const ev of events) enqueue(ev);
@@ -1059,6 +1253,10 @@
 
   function selectVirus(id, quiet) {
     const v = VIRUSES.find((x) => x.id === id) || VIRUSES[0];
+    if (v !== S.virus) {
+      stopBriefing();
+      briefingReplay = null;
+    }
     S.virus = v;
     $("virus").value = v.id; $("virus-intro").value = v.id;
     $("dz-glyph").textContent = v.glyph;
@@ -1095,7 +1293,131 @@
       `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
   }
 
+  function runMapCommand(transcript) {
+    const normalize = (text) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const words = normalize(transcript);
+    const cities = (S.cities || []).filter((city) => city.agents.length);
+    let office = cities.find((city) => words.includes(normalize(city.name)));
+    const tab = (name) => {
+      openIntel();
+      document.querySelector(`.tab[data-tab="${name}"]`).click();
+    };
+    if (/whole map|world view|zoom out|reset.*map|fit map/.test(words)) {
+      zoomHome();
+      closeIntel();
+      $("briefing-office").value = "";
+      renderRisk();
+      return "Showing the whole fleet.";
+    }
+    if (/highest|most at risk|riskiest/.test(words)) {
+      if (!riskInfo() || !cities.length) return "There is no risk forecast for this selection yet.";
+      const scores = cities.map(c => Math.round(100 * c.agents.reduce((sum, a) => sum + (riskFor(a.id) ?? 0), 0) / c.agents.length));
+      const highest = Math.max(...scores);
+      const leaders = cities.filter((_, i) => scores[i] === highest);
+      if (leaders.length > 1) return `${leaders.map(c => c.name).join(", ")} share the highest forecast. Which office would you like to see?`;
+      office = leaders[0];
+    }
+    if (office || /compar|risk|forecast/.test(words)) {
+      if (office) zoomTo(office.lon, office.lat, 3);
+      if (!S.showRisk) $("risk-toggle").click();
+      tab("risk");
+      $("briefing-question").value = "outlook";
+      if (office) $("briefing-office").value = officeLabel(office);
+      renderRisk();
+      if (office && !riskInfo()) return `Showing ${office.name}. No forecast is available yet.`;
+      return $("briefing-transcript").textContent;
+    }
+    const pause = /\bpause\b/.test(words), resume = /\b(resume|continue)\b/.test(words);
+    const cases = /\bcases\b/.test(words);
+    if (pause || resume) setSpeed(pause ? 0 : S.lastSpeed || 1);
+    if (cases) tab("cases");
+    if (pause || resume || cases) return [pause ? "Playback paused." : resume ? "Playback resumed." : "", cases ? "Showing the cases panel." : ""].filter(Boolean).join(" ");
+    return "Try show Paris, compare it with the fleet, pause and show cases, or zoom out.";
+  }
+
+  function wireMapMicrophone() {
+    const button = $("talk-map");
+    const idleLabel = button.textContent;
+    let recorder;
+    let held = false;
+    let discard = false;
+    async function record(fromKeyboard) {
+      if (recorder?.state === "recording") { recorder.stop(); return; }
+      stopBriefing();
+      if (!S.status) { toast("Voice service status is unavailable. Reload the map and try again."); return; }
+      if (!S.status.key) { toast("This server has no Mistral key. Open the voice-enabled preview."); return; }
+      const mime = ["audio/webm", "audio/mp4", "audio/ogg"].find(type => window.MediaRecorder?.isTypeSupported(type));
+      if (!mime || !navigator.mediaDevices?.getUserMedia) { toast("This browser cannot record audio. Open the map in Chrome or Edge."); return; }
+      button.disabled = true;
+      let stream;
+      const release = () => {
+        stream?.getTracks().forEach(track => track.stop());
+        stream = null;
+      };
+      const reset = () => { release(); recorder = null; button.disabled = false; button.textContent = idleLabel; };
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (fromKeyboard && !held) { reset(); return; }
+        discard = false;
+        recorder = new MediaRecorder(stream, { mimeType: mime });
+        const chunks = [];
+        recorder.ondataavailable = e => { if (e.data.size) chunks.push(e.data); };
+        const timer = setTimeout(() => { if (recorder?.state === "recording") recorder.stop(); }, 12000);
+        recorder.onstop = async () => {
+          clearTimeout(timer);
+          release();
+          if (discard) { reset(); return; }
+          button.disabled = true;
+          button.textContent = "Transcribing…";
+          try {
+            const response = await fetch("/api/map-transcript", { method: "POST", body: new Blob(chunks, { type: mime }) });
+            if (!response.ok) throw new Error();
+            const { text } = await response.json();
+            if (!text?.trim()) { toast("No speech detected. Try again."); return; }
+            const answer = runMapCommand(text);
+            toast(`Heard “${text}” — ${answer}`, true);
+            stopBriefing();
+            await listenToBriefing(answer);
+          } catch { toast("Could not process the recording. Try again."); }
+          finally { reset(); }
+        };
+        recorder.start();
+        button.disabled = false;
+        button.textContent = fromKeyboard ? "Release V to send" : "Stop and send";
+      } catch { reset(); toast("Could not start the microphone. Check the browser’s microphone permission."); }
+    }
+    button.onclick = () => record(false);
+    document.addEventListener("keydown", e => {
+      if (e.key.toLowerCase() !== "v" || held || e.repeat || e.isComposing ||
+          e.ctrlKey || e.altKey || e.metaKey || e.shiftKey || button.disabled || recorder ||
+          e.target.isContentEditable || e.target.closest?.("input, select, textarea")) return;
+      e.preventDefault();
+      held = true;
+      record(true);
+    });
+    function releaseKey(cancel) {
+      if (!held) return;
+      held = false;
+      if (recorder?.state === "recording") {
+        discard = cancel;
+        recorder.stop();
+      }
+    }
+    document.addEventListener("keyup", e => {
+      if (e.key.toLowerCase() === "v") releaseKey(false);
+    });
+    window.addEventListener("blur", () => releaseKey(true));
+  }
+
   function wire() {
+    wireMapMicrophone();
+    $("briefing-listen").onclick = listenToBriefing;
+    $("briefing-question").onchange = () => { stopBriefing(); renderRisk(); };
+    $("runs").addEventListener("change", () => {
+      stopBriefing();
+      briefingReplay = null;
+      renderRisk();
+    });
     fillVirusSelect($("virus")); fillVirusSelect($("virus-intro"));
     $("virus").onchange = (e) => selectVirus(e.target.value);
     $("virus-intro").onchange = (e) => selectVirus(e.target.value);

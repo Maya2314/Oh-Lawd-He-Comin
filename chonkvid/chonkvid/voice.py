@@ -51,6 +51,7 @@ async def speak(llm, text: str, voice_id: str = VOICE_ID, fmt: str = "mp3") -> b
 
 
 async def transcribe(llm, audio: bytes, filename: str = "note.mp3",
+                     mime: str = "audio/mpeg",
                      context_bias: list[str] | None = None) -> str:
     """Voxtral transcription. Returns the text the listener hears."""
     if llm.source == "mock":
@@ -68,7 +69,7 @@ async def transcribe(llm, audio: bytes, filename: str = "note.mp3",
                     fields["context_bias"] = list(context_bias)
                 r = await llm._http().post("/audio/transcriptions",
                                            data=fields,
-                                           files={"file": (filename, audio, "audio/mpeg")})
+                                           files={"file": (filename, audio, mime)})
         except httpx.TransportError:
             if attempt == 5:
                 raise
