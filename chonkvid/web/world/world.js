@@ -42,6 +42,7 @@
       labelBg: v("--map-label-bg"), labelInk: v("--map-label-ink"), labelHq: v("--map-label-hq"),
       normalSpeck: v("--map-normal-speck"), muted: v("--muted"), tint3: v("--tint-3"),
       ink: v("--ink"), edgeHi: v("--edge-hi"),
+      light: (window.ChonkTheme ? ChonkTheme.effective() : "dark") === "light",
     });
   }
   readTheme();
@@ -88,7 +89,7 @@
     world: null, sig: "", agents: [], byId: new Map(), cityOf: new Map(), routes: [],
     phase: {}, touched: new Set(), vaccinated: new Set(), ever: new Set(), lastMsg: {},
     cat: {}, prevCat: {}, catAt: {}, patientZero: null, tick: 0, history: [], peak: 0,
-    countryFirst: new Set(),
+    countryFirst: new Set(), ctry: new Map(), // per-country state colour (see updateCountries)
     arcs: [], ripples: [],
     running: false, ws: null, queue: [], timer: null, speed: 1, lastSpeed: 1,
     picking: false, virus: VIRUSES[0], policy: "none", k: 8,
@@ -98,6 +99,10 @@
     startDate: new Date(),
   };
   const FC_NEWS_DAYS = [2, 5]; // forecasts announced in the news ticker (match FORECAST_CHECK_TICKS)
+  const REDUCED = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  // A country takes the colour of its most serious state, in this order (Normal = plain land).
+  const COUNTRY_PRIORITY = ["I", "E", "R", "S", "V"];
+  const COUNTRY_FLASH_MS = 1200;
 
   // ------------------------------------------------------------------ canvas + projection
   const base = $("base"), fx = $("fx");
@@ -400,7 +405,7 @@
     S.cat = {}; S.prevCat = {}; S.catAt = {}; S.patientZero = null; S.tick = 0; S.history = []; S.peak = 0;
     S.countryFirst = new Set(); S.arcs = []; S.ripples = []; S.milestones = new Set();
     S.runEnded = false; S.caseFilter = null;
-    S.fc = null; S.fcChecks = []; S.fcNews = new Set(); S.fcWarned = false;
+    S.fc = null; S.fcChecks = []; S.fcNews = new Set(); S.fcWarned = false; S.ctry = new Map();
     for (const a of S.agents) { S.phase[a.id] = "S"; S.cat[a.id] = S.prevCat[a.id] = "N"; S.catAt[a.id] = 0; }
     $("cases").innerHTML = ""; $("who").innerHTML = `<div class="empty">${$("who-on").checked ? "Le Chonk's situation reports appear here during a run." : "Turn on WHO briefings in Setup to get Le Chonk's situation reports."}</div>`;
     $("case-filter").textContent = "Every infection and every resisted exposure, newest first. Click an agent on the map to filter.";
@@ -426,7 +431,33 @@
       counts[c]++;
     }
     renderCounts(counts);
+    updateCountries(now, silent);
     return counts;
+  }
+
+  // Countries that host agents take the colour key of their most serious state. Agents in an
+  // office whose country is missing from the atlas (Singapore) are grouped by office instead
+  // and drawn as a disc. The first time the attack lands (exposed or infected), the country flashes.
+  function updateCountries(now, silent) {
+    const groups = new Map();
+    for (const a of S.agents) {
+      const key = a.city.country || `office:${a.city.name}`;
+      let gp = groups.get(key);
+      if (!gp) { gp = { poly: a.city.country, cities: new Set(), n: 0, count: {} }; groups.set(key, gp); }
+      gp.cities.add(a.city); gp.n++;
+      const c = S.cat[a.id]; gp.count[c] = (gp.count[c] || 0) + 1;
+    }
+    for (const [key, gp] of groups) {
+      const state = COUNTRY_PRIORITY.find((k) => gp.count[k]) || "N";
+      let e = S.ctry.get(key);
+      if (!e) { e = { poly: gp.poly, cities: [...gp.cities], state: "N", share: 0, cur: 0, flashAt: 0, landed: false }; S.ctry.set(key, e); }
+      e.state = state;
+      e.share = state === "N" ? 0 : gp.count[state] / gp.n;
+      if (!silent && !e.landed && (state === "E" || state === "I")) {
+        e.landed = true; e.flashAt = now;
+        if (!REDUCED) for (const c of e.cities) S.ripples.push({ a: c, t0: now, dur: COUNTRY_FLASH_MS, color: COLOR[state], r: 44 });
+      }
+    }
   }
 
   let lastCounts = {};
@@ -1046,6 +1077,42 @@
       g.restore();
     }
 
+    // countries light up in the colour key of their most serious state
+    if (S.ctry.size) {
+      const boost = TH.light ? 1.3 : 1; // the light land needs a little more colour to read
+      let path = null;
+      for (const e of S.ctry.values()) {
+        const target = e.state === "N" ? 0 : Math.min(0.75, (0.18 + 0.32 * e.share) * boost);
+        e.cur += (target - e.cur) * 0.06;
+        if (e.state !== "N") e.col = COLOR[e.state];
+        const since = now - e.flashAt;
+        const alpha = e.flashAt && !REDUCED && since < COUNTRY_FLASH_MS
+          ? Math.max(e.cur, 0.85 * (1 - since / COUNTRY_FLASH_MS)) : e.cur;
+        if (alpha < 0.01 || !e.col) continue;
+        if (e.poly) {
+          if (!path) {
+            g.save(); g.setTransform(DPR * k, 0, 0, DPR * k, DPR * T.x, DPR * T.y);
+            path = d3.geoPath(proj, g);
+          }
+          g.globalAlpha = alpha; g.fillStyle = e.col;
+          g.beginPath(); path(e.poly); g.fill();
+        } else {
+          // no outline in the atlas (Singapore): a soft disc around the office instead
+          if (path) { g.restore(); path = null; }
+          for (const c of e.cities) {
+            const x = sx(c.p), y = sy(c.p), r = 34 * mk;
+            if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+            const gr = g.createRadialGradient(x, y, 0, x, y, r);
+            gr.addColorStop(0, e.col); gr.addColorStop(1, d3.color(e.col).copy({ opacity: 0 }).formatRgb());
+            g.globalAlpha = Math.min(1, alpha * 1.4); g.fillStyle = gr;
+            g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+          }
+        }
+      }
+      if (path) g.restore();
+      g.globalAlpha = 1;
+    }
+
     // infection glow under infected agents
     for (const a of S.agents) {
       if (S.cat[a.id] !== "I") continue;
@@ -1433,7 +1500,8 @@
     $("legend").innerHTML = STATES.map((s) => `<li data-k="${s.key}" title="${esc(s.def)}"><i class="swatch" style="background:${s.color}"></i><span class="lab">${s.label}</span><span class="num">0</span></li>`).join("");
     $("mini-legend").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i>${s.label}</li>`).join("");
     $("defs").innerHTML = STATES.map((s) => `<li><i class="swatch" style="background:${s.color}"></i><span><b>${s.label}</b>: ${esc(s.def)}</span></li>`).join("") +
-      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>`;
+      `<li><i class="swatch" style="background:transparent;box-shadow:0 0 0 1.5px rgb(${VENUE_CYAN})"></i><span><b>Dashed cyan ring</b>: a member of the group chat, where one message reaches everyone in it.</span></li>` +
+      `<li><i class="swatch" style="background:linear-gradient(90deg, ${COLOR.I}, ${COLOR.E}, ${COLOR.R})"></i><span><b>Coloured countries</b>: a country with agents takes the colour of its most serious state (infected, then exposed, recovered, susceptible, vaccinated), and flashes when the attack first lands there.</span></li>`;
   }
 
   function runMapCommand(transcript) {
