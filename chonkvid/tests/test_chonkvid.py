@@ -335,12 +335,14 @@ def test_suite_defaults_are_gitignored():
     # fine as long as git ignores them: that is the property that matters, and unlike the
     # old "outside ROOT" assertion it does not depend on test order or leftover env vars.
     root_path = Path(root)
+    ignore_lines = [ln.strip() for ln in (root_path / ".gitignore").read_text().splitlines()]
     for path in (results, runs):
         rel = Path(path).name
-        ignored = subprocess.run(
-            ["git", "check-ignore", "-q", rel],
-            cwd=str(root_path), capture_output=True, text=True, timeout=30)
-        assert ignored.returncode == 0, f"{rel} is not gitignored, runs would dirty the tree"
+        # check the pattern text, not `git check-ignore`: with a trailing-slash rule
+        # ("results/") git refuses to match a path that does not exist yet, which is
+        # exactly the state of a fresh CI clone
+        assert f"{rel}/" in ignore_lines or rel in ignore_lines, (
+            f"{rel} is not gitignored, a run would dirty the tree")
 
 
 def test_experiment_recording_prefixed_with_source(llm, det):
